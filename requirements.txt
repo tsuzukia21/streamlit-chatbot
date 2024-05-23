@@ -1,0 +1,6 @@
+streamlit
+langchain
+langchain_openai
+pyperclip
+langchain_google_genai
+langchain_anthropic
