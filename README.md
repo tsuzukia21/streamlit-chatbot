@@ -2,8 +2,6 @@
 
 [app](https://app-chatbot-umvnjxndkxd3yjkbgh2s7y.streamlit.app)
 
-[demo app](https://app-chatbot-ru3ucidcgappbnsh2ss3n7v.streamlit.app)
-
 **This chatbot aims to recreate the ChatGPT browser app using Streamlit.**
 
 It supports
