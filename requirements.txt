@@ -1,6 +1,6 @@
 streamlit
 langchain
 langchain_openai
-pyperclip
+st_txt_copybutton
 langchain_google_genai
 langchain_anthropic
