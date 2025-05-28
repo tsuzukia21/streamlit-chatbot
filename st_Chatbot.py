@@ -26,7 +26,7 @@ if not hasattr(st.session_state, "temperature"):
     st.session_state.temperature = 0.7
 if "model_index" not in st.session_state:
     st.session_state.model_index = 1
-    st.session_state.llm = ChatAnthropic(temperature=st.session_state.temperature, model_name="claude-3-7-sonnet-20250219",max_tokens=4096,timeout=120,max_retries=3)
+    st.session_state.llm = ChatAnthropic(temperature=st.session_state.temperature, model_name="claude-sonnet-4-20250514",max_tokens=4096,timeout=120,max_retries=3)
 
 def copy_button(text):
     copy_button = txt_copy(label="copy", text_to_copy=text.replace("\\n", "\n"), key="text_clipboard")
@@ -63,32 +63,27 @@ def update_model():
     if st.session_state.model == "gpt-4o":
         if openai_api_key == "":
             st.toast("Please enter the OpenAI API Key.",icon=":material/error:")
-        st.session_state.llm = ChatOpenAI(model = "gpt-4o-2024-08-06",temperature=st.session_state.temperature,api_key=openai_api_key)
+        st.session_state.llm = ChatOpenAI(model = "gpt-4.1",temperature=st.session_state.temperature,api_key=openai_api_key)
         st.session_state.model_index = 0
     elif st.session_state.model == "claude-3.7-sonnet":
         if anthropic_api_key =="":
             st.toast("Please enter the Claude API Key.",icon=":material/error:")
-        st.session_state.llm = ChatAnthropic(temperature=st.session_state.temperature, model_name="claude-3-7-sonnet-20250219",max_tokens=4096,timeout=120,max_retries=3,api_key=anthropic_api_key)
+        st.session_state.llm = ChatAnthropic(temperature=st.session_state.temperature, model_name="claude-sonnet-4-20250514",max_tokens=4096,timeout=120,max_retries=3,api_key=anthropic_api_key)
         st.session_state.model_index = 1
     elif st.session_state.model == "gemini-2.0-pro-002":
         if google_api_key == "":
             st.toast("Please enter the Google API Key.",icon=":material/error:")
-        st.session_state.llm = ChatGoogleGenerativeAI(model="gemini-2.0-pro-exp-02-05",temperature=st.session_state.temperature,google_api_key=google_api_key)
-        st.session_state.model_index = 3
-    elif st.session_state.model == "gemini-exp-1206":
-        if google_api_key == "":
-            st.toast("Please enter the Google API Key.",icon=":material/error:")
-        st.session_state.llm = ChatGoogleGenerativeAI(model="gemini-exp-1206",temperature=st.session_state.temperature,google_api_key=google_api_key)
+        st.session_state.llm = ChatGoogleGenerativeAI(model="gemini-2.5-pro-preview-05-06",temperature=st.session_state.temperature,google_api_key=google_api_key)
         st.session_state.model_index = 2
     elif st.session_state.model == "gpt-4.5-preview":
         if openai_api_key == "":
             st.toast("Please enter the OpenAI API Key.",icon=":material/error:")
         st.session_state.llm = ChatOpenAI(model = "gpt-4.5-preview",temperature=st.session_state.temperature,api_key=openai_api_key)
-        st.session_state.model_index = 4
+        st.session_state.model_index = 3
 
 with st.sidebar.container():
     st.selectbox("model",
-                 ("gpt-4o","claude-3.7-sonnet","gemini-exp-1206","gemini-2.0-pro-002","gpt-4.5-preview"),
+                 ("gpt-4o","claude-3.7-sonnet","gemini-2.0-pro-002","gpt-4.5-preview"),
                  help="You can select the model.",index=st.session_state.model_index,key="model",on_change=update_model)
     st.text_area("system prompt",value=st.session_state.system_prompt,on_change=update_system_prompt,key="new_system_prompt",
                                  help="You can provide a prompt to the system. This is only effective at the first message transmission.")
