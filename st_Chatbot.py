@@ -8,16 +8,19 @@ from st_txt_copybutton import txt_copy
 import tiktoken
 import math
 from tiktoken.core import Encoding
+from typing import Tuple, Union, List, Dict, Any, Optional
 
 encoding: Encoding = tiktoken.encoding_for_model("gpt-4o")
 st.set_page_config(layout="wide", page_title="chat bot",page_icon=":material/chat:")
 
 if not hasattr(st.session_state, "done"):
     st.session_state.done = True
-attrs=["clear_button","edit","save","stop"]
+attrs=["clear_button","save","stop"]
 for attr in attrs:
     if attr not in st.session_state:
         st.session_state[attr] = False
+if "edit_states" not in st.session_state:
+    st.session_state.edit_states = {}
 if not hasattr(st.session_state, "total_tokens"):
     st.session_state.total_tokens = 0
 if "system_prompt" not in st.session_state:
@@ -132,40 +135,51 @@ def modify_message(messages, i):
     del messages[i:]
     return messages
 
-def render_human_message(message, index, edit):
+def render_human_message(message: Tuple[str, Union[str, List[Dict[str, Any]]]], index: int, edit: bool) -> None:
     """
-    Renders the user's message.
+    ユーザー側のメッセージをレンダリングします。
     """
     if isinstance(message[1], list):
         for item in message[1]:
             if item["type"] == "text":
                 st.session_state.total_tokens += len(encoding.encode(item["text"]))
+            elif item["type"] == "image_url":
+                # 画像サイズに基づいてトークン数を計算
+                st.session_state.total_tokens += get_image_tokens(item["image_url"]["url"])
     else:
         st.session_state.total_tokens += len(encoding.encode(message[1]))
     
     with st.chat_message("human", avatar=":material/mood:"):
         col1, col2 = st.columns([9, 1])
         with col1:
-            msg_content = message[1]
-            st.markdown(msg_content.replace("\n", "<br>").replace("$", "\\$").replace("#", "\\#").replace("_", "\\_"),unsafe_allow_html=True)
+            if isinstance(message[1], list):
+                for item in message[1]:
+                    if item["type"] == "text":
+                        msg_content = item["text"]
+                        st.markdown(msg_content.replace("\n", "<br>").replace("$", "\\$").replace("#", "\\#").replace("_", "\\_"),unsafe_allow_html=True)
+                    elif item["type"] == "image_url":
+                        st.image(item["image_url"]["url"])
+            else:
+                msg_content = message[1]
+                st.markdown(msg_content.replace("\n", "<br>").replace("$", "\\$").replace("#", "\\#").replace("_", "\\_"),unsafe_allow_html=True)
                 
         with col2:
             if edit:
                 if st.button("edit", key=f"edit_{index}"):
-                    st.session_state.edit = True
+                    st.session_state.edit_states[index] = True
             else:
                 st.button("edit", key=f"dummy_{index}")
                 
-        if edit and st.session_state.edit:
-            st.session_state.new_message = st.text_area("Please save after editing.", value=msg_content)
+        if edit and st.session_state.edit_states.get(index):
+            st.session_state.new_message = st.text_area("編集したらsaveしてください。", value=msg_content, key=f"new_message_{index}")
             if st.button("save", key=f"save_{index}", type="primary"):
-                st.session_state.edit = False
+                st.session_state.edit_states[index] = False
                 modify_message(st.session_state.chat_history, index)
                 st.session_state.save = True
 
-def render_assistant_message(message, index):
+def render_assistant_message(message: Tuple[str, str], index: int) -> None:
     """
-    Renders the assistant's message.
+    アシスタント側のメッセージをレンダリングします。
     """
     col1, col2 = st.columns([9, 1])
     st.session_state.total_tokens += len(encoding.encode(message[1]))
@@ -176,9 +190,13 @@ def render_assistant_message(message, index):
         if index == len(st.session_state.chat_history) - 1:
             copy_button(st.session_state.response)
 
-def show_chat_history(messages, edit, new_message=None):
+def show_chat_history(
+    messages: List[Tuple[str, Union[str, List[Dict[str, Any]]]]],
+    edit: bool,
+    new_message: Optional[str] = None
+) -> None:
     """
-    Displays the entire chat history and renders new messages if needed.
+    チャット履歴全体を表示し、必要に応じて新規メッセージもレンダリングします。
     """
     st.session_state.total_tokens = 0
     for i, message in enumerate(messages):
