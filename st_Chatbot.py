@@ -70,15 +70,12 @@ def update_model():
         st.session_state.llm = ChatAnthropic(temperature=st.session_state.temperature, model_name="claude-sonnet-4-20250514",max_tokens=4096,timeout=120,max_retries=3)
         st.session_state.model_index = 1
     elif st.session_state.model == "gemini-2.5-pro":
-        st.session_state.llm = ChatGoogleGenerativeAI(model="gemini-2.5-pro-preview-05-06",temperature=st.session_state.temperature)
+        st.session_state.llm = ChatGoogleGenerativeAI(model="gemini-2.5-pro",temperature=st.session_state.temperature)
         st.session_state.model_index = 2
-    elif st.session_state.model == "gpt-4.5-preview":
-        st.session_state.llm = ChatOpenAI(model = "gpt-4.5-preview",temperature=st.session_state.temperature)
-        st.session_state.model_index = 3
 
 with st.sidebar.container():
     st.selectbox("model",
-                 ("gpt-4.1","claude-sonnet-4","gemini-2.5-pro","gpt-4.5-preview"),
+                 ("gpt-4.1","claude-sonnet-4","gemini-2.5-pro"),
                  help="You can select the model.",index=st.session_state.model_index,key="model",on_change=update_model)
     st.text_area("system prompt",value=st.session_state.system_prompt,on_change=update_system_prompt,key="new_system_prompt",
                                  help="You can provide a prompt to the system. This is only effective at the first message transmission.")
