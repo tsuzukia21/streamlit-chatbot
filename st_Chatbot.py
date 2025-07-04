@@ -64,24 +64,16 @@ def update_temperature():
 
 def update_model():
     if st.session_state.model == "gpt-4.1":
-        if openai_api_key == "":
-            st.toast("Please enter the OpenAI API Key.",icon=":material/error:")
-        st.session_state.llm = ChatOpenAI(model = "gpt-4.1",temperature=st.session_state.temperature,api_key=openai_api_key)
+        st.session_state.llm = ChatOpenAI(model = "gpt-4.1",temperature=st.session_state.temperature)
         st.session_state.model_index = 0
     elif st.session_state.model == "claude-sonnet-4":
-        if anthropic_api_key =="":
-            st.toast("Please enter the Claude API Key.",icon=":material/error:")
-        st.session_state.llm = ChatAnthropic(temperature=st.session_state.temperature, model_name="claude-sonnet-4-20250514",max_tokens=4096,timeout=120,max_retries=3,api_key=anthropic_api_key)
+        st.session_state.llm = ChatAnthropic(temperature=st.session_state.temperature, model_name="claude-sonnet-4-20250514",max_tokens=4096,timeout=120,max_retries=3)
         st.session_state.model_index = 1
     elif st.session_state.model == "gemini-2.5-pro":
-        if google_api_key == "":
-            st.toast("Please enter the Google API Key.",icon=":material/error:")
-        st.session_state.llm = ChatGoogleGenerativeAI(model="gemini-2.5-pro-preview-05-06",temperature=st.session_state.temperature,google_api_key=google_api_key)
+        st.session_state.llm = ChatGoogleGenerativeAI(model="gemini-2.5-pro-preview-05-06",temperature=st.session_state.temperature)
         st.session_state.model_index = 2
     elif st.session_state.model == "gpt-4.5-preview":
-        if openai_api_key == "":
-            st.toast("Please enter the OpenAI API Key.",icon=":material/error:")
-        st.session_state.llm = ChatOpenAI(model = "gpt-4.5-preview",temperature=st.session_state.temperature,api_key=openai_api_key)
+        st.session_state.llm = ChatOpenAI(model = "gpt-4.5-preview",temperature=st.session_state.temperature)
         st.session_state.model_index = 3
 
 with st.sidebar.container():
@@ -92,9 +84,6 @@ with st.sidebar.container():
                                  help="You can provide a prompt to the system. This is only effective at the first message transmission.")
     st.slider(label="temperature",min_value=0.0, max_value=1.0,on_change=update_temperature,key="new_temperature",
                             value=st.session_state.temperature,help="Controls the randomness of the generated text.")
-    openai_api_key = st.text_input("OpenAI API Key", type="password", value=os.getenv("OPENAI_API_KEY", ""))
-    google_api_key = st.text_input("Google API Key", type="password", value=os.getenv("GOOGLE_API_KEY", ""))
-    anthropic_api_key = st.text_input("Claude API Key", type="password", value=os.getenv("ANTHROPIC_API_KEY", ""))
 
 st.markdown(
     """
