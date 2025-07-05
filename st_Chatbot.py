@@ -3,15 +3,39 @@ from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_anthropic import ChatAnthropic
 from langchain_google_genai import ChatGoogleGenerativeAI
-import os
 from st_txt_copybutton import txt_copy
 import tiktoken
 import math
 from tiktoken.core import Encoding
 from typing import Tuple, Union, List, Dict, Any, Optional
+import base64
+from st_chat_input_multimodal import multimodal_chat_input
+from PIL import Image
+from io import BytesIO
 
 encoding: Encoding = tiktoken.encoding_for_model("gpt-4o")
 st.set_page_config(layout="wide", page_title="chat bot",page_icon=":material/chat:")
+
+def get_image_tokens(image_url: str) -> int:
+    """Calculate the number of tokens for an image. Formula: (width px * height px)/750"""
+    try:
+        # Handle the case where image URL starts with 'data:image/...'
+        if image_url.startswith('data:image/'):
+            base64_data = image_url.split(',')[1]
+            image_data = base64.b64decode(base64_data)
+            image = Image.open(BytesIO(image_data))
+        else:
+            # Handle regular URL case
+            from urllib.request import urlopen
+            image = Image.open(urlopen(image_url))
+        
+        width, height = image.size
+        tokens = (width * height) / 750
+        return int(tokens)
+    except Exception as e:
+        # Return 1000 tokens as fallback when error occurs
+        st.warning(f"Image token calculation error: {e}")
+        return 1000
 
 if not hasattr(st.session_state, "done"):
     st.session_state.done = True
@@ -109,9 +133,12 @@ st.title("Streamlit Chatbot")
 
 st.write("**You can converse with the selected model. You can pause the conversation midway and edit the conversation history.**")
 
-user_input = st.chat_input(
-    "Send a message",
-    accept_file=False,
+user_input = multimodal_chat_input(
+    placeholder="Send a message",
+    enable_voice_input=True,
+    voice_recognition_method="openai_whisper",
+    voice_language="ja-JP",
+    key="chat_input"
 )
 
 if "chat_history" not in st.session_state:
@@ -123,14 +150,14 @@ def modify_message(messages, i):
 
 def render_human_message(message: Tuple[str, Union[str, List[Dict[str, Any]]]], index: int, edit: bool) -> None:
     """
-    ユーザー側のメッセージをレンダリングします。
+    Render user-side messages.
     """
     if isinstance(message[1], list):
         for item in message[1]:
             if item["type"] == "text":
                 st.session_state.total_tokens += len(encoding.encode(item["text"]))
             elif item["type"] == "image_url":
-                # 画像サイズに基づいてトークン数を計算
+                # Calculate token count based on image size
                 st.session_state.total_tokens += get_image_tokens(item["image_url"]["url"])
     else:
         st.session_state.total_tokens += len(encoding.encode(message[1]))
@@ -157,7 +184,7 @@ def render_human_message(message: Tuple[str, Union[str, List[Dict[str, Any]]]], 
                 st.button("edit", key=f"dummy_{index}")
                 
         if edit and st.session_state.edit_states.get(index):
-            st.session_state.new_message = st.text_area("編集したらsaveしてください。", value=msg_content, key=f"new_message_{index}")
+            st.session_state.new_message = st.text_area("Please save after editing.", value=msg_content, key=f"new_message_{index}")
             if st.button("save", key=f"save_{index}", type="primary"):
                 st.session_state.edit_states[index] = False
                 modify_message(st.session_state.chat_history, index)
@@ -165,7 +192,7 @@ def render_human_message(message: Tuple[str, Union[str, List[Dict[str, Any]]]], 
 
 def render_assistant_message(message: Tuple[str, str], index: int) -> None:
     """
-    アシスタント側のメッセージをレンダリングします。
+    Render assistant-side messages.
     """
     col1, col2 = st.columns([9, 1])
     st.session_state.total_tokens += len(encoding.encode(message[1]))
@@ -182,7 +209,7 @@ def show_chat_history(
     new_message: Optional[str] = None
 ) -> None:
     """
-    チャット履歴全体を表示し、必要に応じて新規メッセージもレンダリングします。
+    Display the entire chat history and render new messages as needed.
     """
     st.session_state.total_tokens = 0
     for i, message in enumerate(messages):
@@ -199,21 +226,87 @@ show_chat_history(messages=st.session_state.chat_history,edit=True)
 
 if user_input is not None:
     st.session_state.done = False
-    st.session_state.edit = False   
-    st.session_state.total_tokens += len(encoding.encode(user_input))
+    st.session_state.edit = False
+    
+    # Extract text from multimodal input
+    input_text = user_input.get("text", "")
+    input_files = user_input.get("files", [])
+    
+    # Create message content for LangChain
+    message_content = []
+    if input_text:
+        message_content.append({"type": "text", "text": input_text})
+        st.session_state.total_tokens += len(encoding.encode(input_text))
+    
+    # Handle image files
+    for file in input_files:
+        if file.get("type", "").startswith("image/"):
+            try:
+                base64_data = file['data'].split(',')[1] if ',' in file['data'] else file['data']
+                message_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": file['data']}
+                })
+                # Calculate image tokens based on dimensions
+                st.session_state.total_tokens += get_image_tokens(file['data'])
+            except:
+                pass
+    
+    # Use text content for LangChain input
+    llm_input = input_text if input_text else "Image uploaded"
+    
     check_token()
     with st.chat_message("human",avatar = ":material/mood:"):
         col1,  col2 = st.columns([9,  1])
         with col1:
-            st.markdown(user_input.replace("\n", "<br>").replace("$", "\\$").replace("#", "\\#").replace("_", "\\_"),unsafe_allow_html=True)
+            if input_text:
+                st.markdown(input_text.replace("\n", "<br>").replace("$", "\\$").replace("#", "\\#").replace("_", "\\_"),unsafe_allow_html=True)
+            
+            # Display images
+            for file in input_files:
+                if file.get("type", "").startswith("image/"):
+                    try:
+                        base64_data = file['data'].split(',')[1] if ',' in file['data'] else file['data']
+                        image_bytes = base64.b64decode(base64_data)
+                        st.image(image_bytes, caption=file['name'], width=200)
+                    except:
+                        st.write(f"📎 {file['name']}")
+            
+            # Display voice input information
+            if user_input.get("audio_metadata") and user_input["audio_metadata"]["used_voice_input"]:
+                st.caption(f"🎤 Voice input ({user_input['audio_metadata']['transcription_method']})")
 
-        prompt_template = ChatPromptTemplate.from_messages(
-            [
-                ("system", st.session_state.system_prompt),
-                MessagesPlaceholder(variable_name="conversation"),
-                ("human", "{input}"),
-            ]
-        )
+        # Create prompt based on whether images are included
+        if len(message_content) > 1 or (len(message_content) == 1 and message_content[0]["type"] != "text"):
+            # Multimodal prompt with images
+            human_content = []
+            if input_text:
+                human_content.append({"type": "text", "text": input_text})
+            
+            # Add images
+            for file in input_files:
+                if file.get("type", "").startswith("image/"):
+                    human_content.append({
+                        "type": "image_url", 
+                        "image_url": {"url": file['data']}
+                    })
+            
+            prompt_template = ChatPromptTemplate.from_messages(
+                [
+                    ("system", st.session_state.system_prompt),
+                    MessagesPlaceholder(variable_name="conversation"),
+                    ("human", human_content)
+                ]
+            )
+        else:
+            # Text-only prompt
+            prompt_template = ChatPromptTemplate.from_messages(
+                [
+                    ("system", st.session_state.system_prompt),
+                    MessagesPlaceholder(variable_name="conversation"),
+                    ("human", "{input}"),
+                ]
+            )
 
     chain = (
         prompt_template
@@ -229,14 +322,29 @@ if user_input is not None:
         with col2:
             st.session_state.stop = st.button("stop")
         with col1:
-            for chunk in chain.stream({"input": user_input,"conversation": st.session_state.chat_history}):
-                st.session_state.response += chunk.content
-                message_placeholder.markdown(st.session_state.response.replace("\n","  \n") + "▌",unsafe_allow_html=True)
+            # Stream with appropriate input format
+            if len(message_content) > 1 or (len(message_content) == 1 and message_content[0]["type"] != "text"):
+                # Multimodal input - no need for input parameter
+                for chunk in chain.stream({"conversation": st.session_state.chat_history}):
+                    st.session_state.response += chunk.content
+                    message_placeholder.markdown(st.session_state.response.replace("\n","  \n") + "▌",unsafe_allow_html=True)
+            else:
+                # Text-only input
+                for chunk in chain.stream({"input": llm_input,"conversation": st.session_state.chat_history}):
+                    st.session_state.response += chunk.content
+                    message_placeholder.markdown(st.session_state.response.replace("\n","  \n") + "▌",unsafe_allow_html=True)
             message_placeholder.markdown(st.session_state.response.replace("\n","  \n"))
         
     st.session_state.done = True
 
-    st.session_state.chat_history.append(("human", user_input))
+    # Store the message content in appropriate format
+    if len(message_content) == 1 and message_content[0]["type"] == "text":
+        # Simple text message
+        st.session_state.chat_history.append(("human", message_content[0]["text"]))
+    else:
+        # Multimodal message
+        st.session_state.chat_history.append(("human", message_content))
+    
     st.session_state.chat_history.append(("assistant", st.session_state.response))
     st.session_state.clear_button=True
     st.session_state.clear_button_holder = st.empty()
