@@ -52,8 +52,8 @@ if "system_prompt" not in st.session_state:
 if not hasattr(st.session_state, "temperature"):
     st.session_state.temperature = 0.7
 if "model_index" not in st.session_state:
-    st.session_state.model_index = 1
-    st.session_state.llm = ChatAnthropic(temperature=st.session_state.temperature, model_name="claude-sonnet-4-20250514",max_tokens=4096,timeout=120,max_retries=3)
+    st.session_state.model_index = 0
+    st.session_state.llm = ChatOpenAI(model = "gpt-4.1",temperature=st.session_state.temperature)
 
 def copy_button(text):
     copy_button = txt_copy(label="copy", text_to_copy=text.replace("\\n", "\n"), key="text_clipboard")
@@ -272,10 +272,6 @@ if user_input is not None:
                     except:
                         st.write(f"📎 {file['name']}")
             
-            # Display voice input information
-            if user_input.get("audio_metadata") and user_input["audio_metadata"]["used_voice_input"]:
-                st.caption(f"🎤 Voice input ({user_input['audio_metadata']['transcription_method']})")
-
         # Create prompt based on whether images are included
         if len(message_content) > 1 or (len(message_content) == 1 and message_content[0]["type"] != "text"):
             # Multimodal prompt with images
