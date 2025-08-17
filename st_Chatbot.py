@@ -309,10 +309,6 @@ if user_input is not None:
                             st.image(image_bytes, caption=file['name'], width=200)
                         except:
                             st.write(f"📎 {file['name']}")
-                
-                # Display voice input information
-                if user_input.get("audio_metadata") and user_input["audio_metadata"]["used_voice_input"]:
-                    st.caption(f"🎤 Voice input ({user_input['audio_metadata']['transcription_method']})")
 
             # Create prompt based on whether images are included (unified)
             image_urls: List[str] = []
