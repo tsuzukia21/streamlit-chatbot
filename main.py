@@ -11,30 +11,40 @@ from st_chat_input_multimodal import multimodal_chat_input
 
 st.set_page_config(layout="wide", page_title="chat bot",page_icon=":material/chat:")
 
-# モデル設定の一元管理
+# モデル設定の一元管理（全て推論モデル）
 MODEL_CONFIG = {
-    "gpt-4.1-nano": {
-        "provider": "openai",
-        "index": 0,
-        "llm_factory": lambda temp: ChatOpenAI(model="gpt-4.1-nano", temperature=temp)
-    },
-    "claude-sonnet-4": {
+    "claude-sonnet-4.5": {
         "provider": "anthropic",
-        "index": 1,
+        "display_name": "Claude Sonnet 4.5",
+        "index": 0,
         "llm_factory": lambda temp: ChatAnthropic(
-            temperature=temp,
-            model_name="claude-sonnet-4-20250514",
-            max_tokens=4096,
+            temperature=1.0,
+            model_name="claude-sonnet-4-5-20250929",
+            max_tokens=16384,
             timeout=120,
-            max_retries=3
+            max_retries=3,
+            thinking={"type": "enabled","budget_tokens": 8192}
         )
     },
     "gemini-2.5-pro": {
         "provider": "google",
-        "index": 2,
+        "display_name": "Gemini 2.5 Pro",
+        "index": 1,
         "llm_factory": lambda temp: ChatGoogleGenerativeAI(
             model="gemini-2.5-pro",
-            temperature=temp
+            temperature=1.0,
+            thinking_budget=16000,
+            include_thoughts=True
+        )
+    },
+    "o1-preview": {
+        "provider": "openai",
+        "display_name": "gpt-5",
+        "index": 2,
+        "llm_factory": lambda temp: ChatOpenAI(
+            model="gpt-5",
+            temperature=1.0,
+            reasoning={"effort": "medium"}
         )
     }
 }
@@ -48,12 +58,13 @@ def initialize_session_state():
         "stop": False,
         "edit_states": {},
         "total_tokens": 0,
-        "system_prompt": "You are an excellent AI assistant.",
+        "system_prompt": "あなたは優秀なAIアシスタントです。",
         "temperature": 0.7,
         "error_message": "",
-        "model_index": 1,
+        "model_index": 0,
         "chat_history": [],
-        "model": "gpt-4.1-nano",
+        "model": "claude-sonnet-4.5",
+        "reasoning": "",  # 推論過程の保存
     }
     
     for key, value in defaults.items():
@@ -68,8 +79,8 @@ def initialize_session_state():
 
 def get_current_provider() -> str:
     """現在のモデルのプロバイダを取得"""
-    model = st.session_state.get("model", "gpt-4.1-nano")
-    return MODEL_CONFIG.get(model, MODEL_CONFIG["gpt-4.1-nano"])["provider"]
+    model = st.session_state.get("model", "claude-sonnet-4.5")
+    return MODEL_CONFIG.get(model, MODEL_CONFIG["claude-sonnet-4.5"])["provider"]
 
 def copy_button(text: str, key_suffix: Union[int, str]) -> None:
     copy_button = txt_copy(label="copy", text_to_copy=text.replace("\\n", "\n"), key=f"text_clipboard_chat_{key_suffix}")
@@ -100,6 +111,7 @@ def clear_chat():
     st.session_state.done = True
     st.session_state.error_message = ""
     st.session_state.edit_states = {}
+    st.session_state.reasoning = ""  # 推論過程もクリア
     st.rerun()
 
 def update_system_prompt():
@@ -130,9 +142,14 @@ def on_stop() -> None:
 initialize_session_state()
 
 with st.sidebar.container():
+    model_options = list(MODEL_CONFIG.keys())
     st.selectbox("model",
-                 ("gpt-4.1-nano","claude-sonnet-4","gemini-2.5-pro"),
-                 help="You can select the model.",index=st.session_state.model_index,key="model",on_change=update_model)
+                 options=model_options,
+                 format_func=lambda x: MODEL_CONFIG[x]["display_name"],
+                 help="推論モデルを選択できます。全てのモデルが思考プロセスに対応しています。",
+                 index=st.session_state.model_index,
+                 key="model",
+                 on_change=update_model)
     st.text_area("system prompt",value=st.session_state.system_prompt,on_change=update_system_prompt,key="new_system_prompt",
                                  help="You can provide a prompt to the system. This is only effective at the first message transmission.")
     st.slider(label="temperature",min_value=0.0, max_value=1.0,on_change=update_temperature,key="new_temperature",
@@ -197,28 +214,91 @@ def build_chain(prompt_template: ChatPromptTemplate):
     """プロンプトテンプレートからチェーンを構築する。"""
     return (prompt_template | st.session_state.llm).with_config({"run_name": "Chat", "tags": ["Chat"]})
 
-def stream_response(chain, input_text: str, conversation_history: List[Tuple[str, Union[str, List[Dict[str, Any]]]]], provider: str, message_placeholder) -> Tuple[str, int]:
+def stream_response_anthropic(chain, input_text: str, conversation_history: List[Tuple[str, Union[str, List[Dict[str, Any]]]]], status_container, reasoning_placeholder, message_placeholder) -> Tuple[str, int]:
     """
-    共通のストリーミング処理。
-    - チャンク結合
-    - stop 押下チェック
-    - トークン集計（google は逐次、他は最終チャンク）
+    Anthropic用のストリーミング処理（thinking対応）
     """
     st.session_state.response = ""
+    st.session_state.reasoning = ""
     total_tokens: int = 0
-    last_chunk: Any = None
+    last_usage: Optional[Dict[str, Any]] = None
+    
     for chunk in chain.stream({"input": input_text, "conversation": conversation_history}):
-        last_chunk = chunk
-        if not st.session_state.stop:
-            st.session_state.response += chunk.content
-            message_placeholder.markdown(st.session_state.response.replace("\n", "  \n") + "▌", unsafe_allow_html=True)
-        if provider == "google":
-            total_tokens += (getattr(chunk, "usage_metadata", {}) or {}).get("total_tokens", 0)
-    if provider != "google" and last_chunk is not None:
+        if st.session_state.stop:
+            break
+        if isinstance(chunk.content, list) and len(chunk.content) > 0:
+            content_item = chunk.content[0]
+            if content_item.get("thinking"):
+                status_container.update(label="AIは考えています...", state="running", expanded=True)
+                st.session_state.reasoning += content_item["thinking"]
+                reasoning_placeholder.markdown(st.session_state.reasoning.replace("\n", "  \n"), unsafe_allow_html=True)
+            elif content_item.get("text"):
+                status_container.update(label="出力中...", state="running", expanded=False)
+                st.session_state.response += content_item["text"]
+                message_placeholder.markdown(st.session_state.response.replace("\n", "  \n") + "▌", unsafe_allow_html=True)
         try:
-            total_tokens = last_chunk.usage_metadata.get("total_tokens", 0)
+            if getattr(chunk, "usage_metadata", None):
+                last_usage = chunk.usage_metadata
         except Exception:
             pass
+    
+    if last_usage:
+        total_tokens = last_usage.get("total_tokens", 0)
+    
+    status_container.update(label="完了", state="complete", expanded=False)
+    message_placeholder.markdown(st.session_state.response.replace("\n", "  \n"))
+    return st.session_state.response, total_tokens
+
+def stream_response_google(chain, input_text: str, conversation_history: List[Tuple[str, Union[str, List[Dict[str, Any]]]]], status_container, reasoning_placeholder, message_placeholder) -> Tuple[str, int]:
+    """
+    Google用のストリーミング処理（thinking対応）
+    """
+    st.session_state.response = ""
+    st.session_state.reasoning = ""
+    total_tokens: int = 0
+    
+    for chunk in chain.stream({"input": input_text, "conversation": conversation_history}):
+        if st.session_state.stop:
+            break
+        if isinstance(chunk.content, list) and len(chunk.content) > 0:
+            content_item = chunk.content[0]
+            if content_item.get("thinking"):
+                status_container.update(label="AIは考えています...", state="running", expanded=True)
+                st.session_state.reasoning += content_item["thinking"]
+                reasoning_placeholder.markdown(st.session_state.reasoning.replace("\n", "  \n"), unsafe_allow_html=True)
+        else:
+            status_container.update(label="出力中...", state="running", expanded=False)
+            st.session_state.response += chunk.content
+            message_placeholder.markdown(st.session_state.response.replace("\n", "  \n") + "▌", unsafe_allow_html=True)
+        try:
+            total_tokens += (chunk.usage_metadata or {}).get("total_tokens", 0)
+        except Exception:
+            pass
+    
+    status_container.update(label="完了", state="complete", expanded=False)
+    message_placeholder.markdown(st.session_state.response.replace("\n", "  \n"))
+    return st.session_state.response, total_tokens
+
+def stream_response_openai(chain, input_text: str, conversation_history: List[Tuple[str, Union[str, List[Dict[str, Any]]]]], status_container, message_placeholder) -> Tuple[str, int]:
+    """
+    OpenAI用の処理（o1シリーズはinvokeで取得）
+    """
+    st.session_state.response = ""
+    st.session_state.reasoning = ""
+    total_tokens: int = 0
+    
+    status_container.update(label="AIは考えています...", state="running", expanded=False)
+    resp = chain.invoke({"input": input_text, "conversation": conversation_history})
+    
+    try:
+        st.session_state.response = resp.content[0]["text"]
+    except Exception:
+        st.session_state.response = getattr(resp, "content", "")
+    
+    usage = getattr(resp, "usage_metadata", None)
+    total_tokens = (usage or {}).get("total_tokens", 0)
+    
+    status_container.update(label="完了", state="complete", expanded=False)
     message_placeholder.markdown(st.session_state.response.replace("\n", "  \n"))
     return st.session_state.response, total_tokens
 
@@ -228,7 +308,7 @@ def run_chat_turn(
     image_urls: Optional[List[str]] = None
 ) -> Tuple[str, int]:
     """
-    チャットターンのストリーミング実行を行う共通関数。
+    チャットターンのストリーミング実行を行う共通関数（推論対応）
     
     Args:
         prompt: ユーザー入力テキスト
@@ -249,22 +329,53 @@ def run_chat_turn(
     
     # ストリーミング実行とUI表示
     st.session_state.response = ""
+    st.session_state.reasoning = ""
+    
     with st.chat_message("assistant", avatar=":material/psychology:"):
         col1, col2 = st.columns([9, 1])
-        with col1:
-            message_placeholder = st.empty()
-            message_placeholder.markdown("thinking...")
         with col2:
             _pressed = st.button("stop", on_click=on_stop)
             st.session_state.stop = _pressed
         with col1:
-            response, tokens = stream_response(
-                chain=chain,
-                input_text=prompt,
-                conversation_history=conversation_history,
-                provider=provider,
-                message_placeholder=message_placeholder,
-            )
+            if provider == "anthropic":
+                with st.status(label="メッセージを送信", state="complete", expanded=False) as status_container:
+                    reasoning_placeholder = st.empty()
+                message_placeholder = st.empty()
+                response, tokens = stream_response_anthropic(
+                    chain=chain,
+                    input_text=prompt,
+                    conversation_history=conversation_history,
+                    status_container=status_container,
+                    reasoning_placeholder=reasoning_placeholder,
+                    message_placeholder=message_placeholder,
+                )
+            elif provider == "google":
+                with st.status(label="AIは考えています...", state="running", expanded=False) as status_container:
+                    reasoning_placeholder = st.empty()
+                message_placeholder = st.empty()
+                response, tokens = stream_response_google(
+                    chain=chain,
+                    input_text=prompt,
+                    conversation_history=conversation_history,
+                    status_container=status_container,
+                    reasoning_placeholder=reasoning_placeholder,
+                    message_placeholder=message_placeholder,
+                )
+            elif provider == "openai":
+                status_container = st.status(label="AIは考えています...", state="running", expanded=False)
+                message_placeholder = st.empty()
+                response, tokens = stream_response_openai(
+                    chain=chain,
+                    input_text=prompt,
+                    conversation_history=conversation_history,
+                    status_container=status_container,
+                    message_placeholder=message_placeholder,
+                )
+            else:
+                # フォールバック
+                message_placeholder = st.empty()
+                message_placeholder.markdown("Unknown provider")
+                response, tokens = "", 0
     
     return response, tokens
 
@@ -310,6 +421,10 @@ def render_assistant_message(message: Tuple[str, str], index: int, show_copy_but
     col1, col2 = st.columns([9, 1])
     with col1:
         with st.chat_message("assistant", avatar=":material/psychology:"):
+            # 最新のメッセージで推論過程がある場合は表示
+            if index == len(st.session_state.chat_history) - 1 and hasattr(st.session_state, "reasoning") and st.session_state.reasoning:
+                with st.expander("AIの思考プロセス", expanded=False):
+                    st.markdown(st.session_state.reasoning.replace("\n", "  \n"), unsafe_allow_html=True)
             st.markdown(message[1].replace("\n","  \n"), unsafe_allow_html=True)
     with col2:
         if show_copy_button and index == len(st.session_state.chat_history) - 1:
@@ -336,9 +451,7 @@ def show_chat_history(
     if error_message:
         st.error(f"エラーが発生しました。  \n{st.session_state.error_message}。  \nモデルを変更するか再度試してみてください。",icon=":material/warning:")
 
-st.title("Streamlit Chatbot")
-
-st.write("**You can converse with the selected model. You can pause the conversation midway and edit the conversation history.**")
+st.title("Streamlit ChatBot")
 
 user_input = multimodal_chat_input(
     placeholder="Send a message",
