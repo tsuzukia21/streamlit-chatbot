@@ -4,3 +4,4 @@ langchain_openai
 st_txt_copybutton
 langchain_google_genai
 langchain_anthropic
+st_chat_input_multimodal

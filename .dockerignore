@@ -1,0 +1,38 @@
+# Python関連
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# 仮想環境
+venv/
+env/
+ENV/
+
+# Git関連
+.git/
+.gitignore
+.gitattributes
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ドキュメント・デモファイル
+README.md
+CLAUDE.md
+flowchart.md
+demo.gif
+
+# その他不要なファイル
+.DS_Store
+*.log
+.env
+poetry.lock
+

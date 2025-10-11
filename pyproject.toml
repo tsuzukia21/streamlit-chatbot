@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "streamlit-chatbot"
+version = "0.1.0"
+description = "Streamlit ChatBot with multiple AI models"
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+streamlit = "^1.50.0"
+langchain = "^0.3.27"
+langchain-openai = "^0.3.27"
+langchain-anthropic = "^0.3.17"
+langchain-google-genai = "^2.1.12"
+st-txt-copybutton = "^0.0.3"
+st-chat-input-multimodal = "^1.0.4"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
