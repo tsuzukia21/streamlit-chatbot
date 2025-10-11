@@ -11,45 +11,65 @@ from st_chat_input_multimodal import multimodal_chat_input
 
 st.set_page_config(layout="wide", page_title="chat bot",page_icon=":material/chat:")
 
+# モデル設定の一元管理
+MODEL_CONFIG = {
+    "gpt-4.1-nano": {
+        "provider": "openai",
+        "index": 0,
+        "llm_factory": lambda temp: ChatOpenAI(model="gpt-4.1-nano", temperature=temp)
+    },
+    "claude-sonnet-4": {
+        "provider": "anthropic",
+        "index": 1,
+        "llm_factory": lambda temp: ChatAnthropic(
+            temperature=temp,
+            model_name="claude-sonnet-4-20250514",
+            max_tokens=4096,
+            timeout=120,
+            max_retries=3
+        )
+    },
+    "gemini-2.5-pro": {
+        "provider": "google",
+        "index": 2,
+        "llm_factory": lambda temp: ChatGoogleGenerativeAI(
+            model="gemini-2.5-pro",
+            temperature=temp
+        )
+    }
+}
+
+def initialize_session_state():
+    """セッション状態の初期化を一元管理"""
+    defaults = {
+        "done": True,
+        "Clear": False,
+        "save": False,
+        "stop": False,
+        "edit_states": {},
+        "total_tokens": 0,
+        "system_prompt": "You are an excellent AI assistant.",
+        "temperature": 0.7,
+        "error_message": "",
+        "model_index": 1,
+        "chat_history": [],
+        "model": "gpt-4.1-nano",
+    }
+    
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+    
+    # LLM初期化（modelが設定された後）
+    if "llm" not in st.session_state:
+        model_name = st.session_state.model
+        config = MODEL_CONFIG[model_name]
+        st.session_state.llm = config["llm_factory"](st.session_state.temperature)
+
 def get_current_provider() -> str:
-    model = st.session_state.get("model", "")
-    if model == "gemini-2.5-pro":
-        return "google"
-    if model == "claude-sonnet-4":
-        return "anthropic"
-    if model == "gpt-4.1":
-        return "openai"
-    return "openai"
-
-if not hasattr(st.session_state, "done"):
-    st.session_state.done = True
-
-attrs=["Clear","save","stop"]
-for attr in attrs:
-    if attr not in st.session_state:
-        st.session_state[attr] = False
-
-if "edit_states" not in st.session_state:
-    st.session_state.edit_states = {}
-
-if not hasattr(st.session_state, "total_tokens"):
-    st.session_state.total_tokens = 0
-
-if "system_prompt" not in st.session_state:
-    st.session_state.system_prompt = "You are an excellent AI assistant."
-
-if not hasattr(st.session_state, "temperature"):
-    st.session_state.temperature = 0.7
-
-if "error_message" not in st.session_state:
-    st.session_state.error_message = ""
-
-if "model_index" not in st.session_state:
-    st.session_state.model_index = 1
-    st.session_state.llm = ChatAnthropic(temperature=st.session_state.temperature, model_name="claude-sonnet-4-20250514",max_tokens=4096,timeout=120,max_retries=3)
-
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
+    """現在のモデルのプロバイダを取得"""
+    model = st.session_state.get("model", "gpt-4.1-nano")
+    return MODEL_CONFIG.get(model, MODEL_CONFIG["gpt-4.1-nano"])["provider"]
 
 def copy_button(text: str, key_suffix: Union[int, str]) -> None:
     copy_button = txt_copy(label="copy", text_to_copy=text.replace("\\n", "\n"), key=f"text_clipboard_chat_{key_suffix}")
@@ -89,15 +109,12 @@ def update_temperature():
     st.session_state.temperature = st.session_state.new_temperature
 
 def update_model():
-    if st.session_state.model == "gpt-4.1":
-        st.session_state.llm = ChatOpenAI(model = "gpt-4.1",temperature=st.session_state.temperature)
-        st.session_state.model_index = 0
-    elif st.session_state.model == "claude-sonnet-4":
-        st.session_state.llm = ChatAnthropic(temperature=st.session_state.temperature, model_name="claude-sonnet-4-20250514",max_tokens=4096,timeout=120,max_retries=3)
-        st.session_state.model_index = 1
-    elif st.session_state.model == "gemini-2.5-pro":
-        st.session_state.llm = ChatGoogleGenerativeAI(model="gemini-2.5-pro",temperature=st.session_state.temperature)
-        st.session_state.model_index = 2
+    """モデル切り替え時にLLMインスタンスとインデックスを更新"""
+    model_name = st.session_state.model
+    config = MODEL_CONFIG.get(model_name)
+    if config:
+        st.session_state.llm = config["llm_factory"](st.session_state.temperature)
+        st.session_state.model_index = config["index"]
 
 def on_stop() -> None:
     """stop押下時に停止フラグを立てる。streamlitの仕様上ループ中断後の処理は実行されないのでstate、chat_history更新する。"""
@@ -109,9 +126,12 @@ def on_stop() -> None:
     st.session_state.Clear = True
     st.session_state.save = False
 
+# セッション状態を初期化
+initialize_session_state()
+
 with st.sidebar.container():
     st.selectbox("model",
-                 ("gpt-4.1","claude-sonnet-4","gemini-2.5-pro"),
+                 ("gpt-4.1-nano","claude-sonnet-4","gemini-2.5-pro"),
                  help="You can select the model.",index=st.session_state.model_index,key="model",on_change=update_model)
     st.text_area("system prompt",value=st.session_state.system_prompt,on_change=update_system_prompt,key="new_system_prompt",
                                  help="You can provide a prompt to the system. This is only effective at the first message transmission.")
@@ -122,37 +142,56 @@ def modify_message(messages, i):
     del messages[i:]
     return messages
 
-def build_prompt_template_text_only() -> ChatPromptTemplate:
+def render_markdown(text: str) -> str:
     """
-    テキストのみのプロンプトテンプレートを構築する。
-    system -> conversation -> human("{input}") の順。
+    テキストをMarkdown表示用にエスケープする。
+    改行を<br>に変換し、特殊文字をエスケープする。
     """
-    return ChatPromptTemplate.from_messages(
-        [
-            ("system", st.session_state.system_prompt),
-            MessagesPlaceholder(variable_name="conversation"),
-            ("human", "{input}"),
-        ]
-    )
+    return text.replace("\n", "<br>").replace("$", "\\$").replace("#", "\\#").replace("_", "\\_")
 
-def build_prompt_template_with_images(image_urls: List[str]) -> ChatPromptTemplate:
+def render_uploaded_images(files: List[Dict]) -> None:
     """
-    画像付きのプロンプトテンプレートを構築する。
-    human は [{text:{"{input}"}}, {image_url: {url: data-uri}}, ...] のリストにする。
+    アップロードされた画像ファイルを表示する。
     """
-    human_content: List[Dict[str, Any]] = [{"type": "text", "text": "{input}"}]
-    for url in image_urls:
-        human_content.append({
-            "type": "image_url",
-            "image_url": {"url": url}
-        })
-    return ChatPromptTemplate.from_messages(
-        [
-            ("system", st.session_state.system_prompt),
-            MessagesPlaceholder(variable_name="conversation"),
-            ("human", human_content),
-        ]
-    )
+    for file in files:
+        if file.get("type", "").startswith("image/"):
+            try:
+                base64_data = file['data'].split(',')[1] if ',' in file['data'] else file['data']
+                image_bytes = base64.b64decode(base64_data)
+                st.image(image_bytes, caption=file['name'], width=200)
+            except (ValueError, base64.binascii.Error, KeyError) as e:
+                st.warning(f"画像 '{file.get('name', 'unknown')}' の表示に失敗しました")
+                st.write(f"📎 {file.get('name', 'unknown')}")
+
+def build_prompt_template(image_urls: Optional[List[str]] = None) -> ChatPromptTemplate:
+    """
+    プロンプトテンプレートを構築する。
+    image_urls が None または空の場合はテキストのみ、それ以外は画像付きテンプレートを返す。
+    """
+    if image_urls:
+        # 画像付きの場合
+        human_content: List[Dict[str, Any]] = [{"type": "text", "text": "{input}"}]
+        for url in image_urls:
+            human_content.append({
+                "type": "image_url",
+                "image_url": {"url": url}
+            })
+        return ChatPromptTemplate.from_messages(
+            [
+                ("system", st.session_state.system_prompt),
+                MessagesPlaceholder(variable_name="conversation"),
+                ("human", human_content),
+            ]
+        )
+    else:
+        # テキストのみの場合
+        return ChatPromptTemplate.from_messages(
+            [
+                ("system", st.session_state.system_prompt),
+                MessagesPlaceholder(variable_name="conversation"),
+                ("human", "{input}"),
+            ]
+        )
 
 def build_chain(prompt_template: ChatPromptTemplate):
     """プロンプトテンプレートからチェーンを構築する。"""
@@ -183,6 +222,52 @@ def stream_response(chain, input_text: str, conversation_history: List[Tuple[str
     message_placeholder.markdown(st.session_state.response.replace("\n", "  \n"))
     return st.session_state.response, total_tokens
 
+def run_chat_turn(
+    prompt: str, 
+    conversation_history: List[Tuple[str, Union[str, List[Dict[str, Any]]]]], 
+    image_urls: Optional[List[str]] = None
+) -> Tuple[str, int]:
+    """
+    チャットターンのストリーミング実行を行う共通関数。
+    
+    Args:
+        prompt: ユーザー入力テキスト
+        conversation_history: これまでの会話履歴
+        image_urls: 画像のdata URI リスト（Noneの場合はテキストのみ）
+    
+    Returns:
+        (response_text, total_tokens): アシスタントの応答とトークン数
+    """
+    # プロンプトテンプレート構築
+    prompt_template = build_prompt_template(image_urls)
+    
+    # チェーン構築
+    chain = build_chain(prompt_template)
+    
+    # プロバイダ取得
+    provider = get_current_provider()
+    
+    # ストリーミング実行とUI表示
+    st.session_state.response = ""
+    with st.chat_message("assistant", avatar=":material/psychology:"):
+        col1, col2 = st.columns([9, 1])
+        with col1:
+            message_placeholder = st.empty()
+            message_placeholder.markdown("thinking...")
+        with col2:
+            _pressed = st.button("stop", on_click=on_stop)
+            st.session_state.stop = _pressed
+        with col1:
+            response, tokens = stream_response(
+                chain=chain,
+                input_text=prompt,
+                conversation_history=conversation_history,
+                provider=provider,
+                message_placeholder=message_placeholder,
+            )
+    
+    return response, tokens
+
 def render_human_message(message: Tuple[str, Union[str, List[Dict[str, Any]]]], index: int, edit: bool) -> None:
     """
     Render user-side messages.
@@ -195,12 +280,12 @@ def render_human_message(message: Tuple[str, Union[str, List[Dict[str, Any]]]], 
                 for item in message[1]:
                     if item["type"] == "text":
                         msg_content = item["text"]
-                        st.markdown(msg_content.replace("\n", "<br>").replace("$", "\\$").replace("#", "\\#").replace("_", "\\_"),unsafe_allow_html=True)
+                        st.markdown(render_markdown(msg_content), unsafe_allow_html=True)
                     elif item["type"] == "image_url":
                         st.image(item["image_url"]["url"])
             else:
                 msg_content = message[1]
-                st.markdown(msg_content.replace("\n", "<br>").replace("$", "\\$").replace("#", "\\#").replace("_", "\\_"),unsafe_allow_html=True)
+                st.markdown(render_markdown(msg_content), unsafe_allow_html=True)
                 
         with col2:
             if edit:
@@ -247,7 +332,7 @@ def show_chat_history(
             render_assistant_message(message, i, show_copy_button)
     if new_message:
         with st.chat_message("user", avatar=":material/mood:"):
-            st.markdown(new_message.replace("\n", "<br>").replace("$", "\\$").replace("#", "\\#").replace("_", "\\_"),unsafe_allow_html=True)
+            st.markdown(render_markdown(new_message), unsafe_allow_html=True)
     if error_message:
         st.error(f"エラーが発生しました。  \n{st.session_state.error_message}。  \nモデルを変更するか再度試してみてください。",icon=":material/warning:")
 
@@ -274,56 +359,32 @@ if user_input is not None:
         input_text = user_input.get("text", "")
         input_files = user_input.get("files", [])
         
-        # Create message content for LangChain
-        message_content = []
-        if input_text:
-            message_content.append({"type": "text", "text": input_text})
+        # Use text content for LangChain input
+        llm_input = input_text if input_text else "Image uploaded"
         
-        # Handle image files
+        # Display user message with images
+        with st.chat_message("human", avatar=":material/mood:"):
+            col1, col2 = st.columns([9, 1])
+            with col1:
+                if input_text:
+                    st.markdown(render_markdown(input_text), unsafe_allow_html=True)
+                
+                # Display images
+                render_uploaded_images(input_files)
+        
+        # Extract image URLs for prompt template
+        image_urls: List[str] = []
         for file in input_files:
             if file.get("type", "").startswith("image/"):
                 try:
                     base64_data = file['data'].split(',')[1] if ',' in file['data'] else file['data']
-                    message_content.append({
-                        "type": "image_url",
-                        "image_url": {"url": file['data']}
-                    })
-                except:
-                    pass
+                    # Validate base64 data
+                    base64.b64decode(base64_data)
+                    image_urls.append(file["data"])
+                except (ValueError, base64.binascii.Error) as e:
+                    st.warning(f"画像 '{file.get('name', 'unknown')}' の読み込みに失敗しました: {str(e)}")
         
-        # Use text content for LangChain input
-        llm_input = input_text if input_text else "Image uploaded"
-        
-        with st.chat_message("human",avatar = ":material/mood:"):
-            col1,  col2 = st.columns([9,  1])
-            with col1:
-                if input_text:
-                    st.markdown(input_text.replace("\n", "<br>").replace("$", "\\$").replace("#", "\\#").replace("_", "\\_"),unsafe_allow_html=True)
-                
-                # Display images
-                for file in input_files:
-                    if file.get("type", "").startswith("image/"):
-                        try:
-                            base64_data = file['data'].split(',')[1] if ',' in file['data'] else file['data']
-                            image_bytes = base64.b64decode(base64_data)
-                            st.image(image_bytes, caption=file['name'], width=200)
-                        except:
-                            st.write(f"📎 {file['name']}")
-
-            # Create prompt based on whether images are included (unified)
-            image_urls: List[str] = []
-            for file in input_files:
-                if file.get("type", "").startswith("image/"):
-                    image_urls.append(file["data"])  # expect data URI
-
-            if image_urls:
-                prompt_template = build_prompt_template_with_images(image_urls)
-            else:
-                prompt_template = build_prompt_template_text_only()
-
-        chain = build_chain(prompt_template)
-
-        st.session_state.response = ""
+        # Add human message to history
         if image_urls:
             human_payload: List[Dict[str, Any]] = []
             if input_text:
@@ -333,65 +394,50 @@ if user_input is not None:
             st.session_state.chat_history.append(("human", human_payload))
         else:
             st.session_state.chat_history.append(("human", input_text))
-        provider = get_current_provider()
-        with st.chat_message("assistant",avatar = ":material/psychology:"):
-            col1,  col2 = st.columns([9,  1])
-            with col1:
-                message_placeholder = st.empty()
-                message_placeholder.markdown("thinking...")
-            with col2:
-                _pressed = st.button("stop", on_click=on_stop)
-                st.session_state.stop = _pressed
-            with col1:
-                st.session_state.total_tokens = 0
-                st.session_state.response, st.session_state.total_tokens = stream_response(
-                    chain=chain,
-                    input_text=llm_input,
-                    conversation_history=st.session_state.chat_history[:-1],
-                    provider=provider,
-                    message_placeholder=message_placeholder,
-                )
-                st.session_state.chat_history.append(("assistant", st.session_state.response))
+        
+        # Execute chat turn
+        st.session_state.total_tokens = 0
+        response, tokens = run_chat_turn(
+            prompt=llm_input,
+            conversation_history=st.session_state.chat_history[:-1],
+            image_urls=image_urls if image_urls else None
+        )
+        st.session_state.total_tokens = tokens
+        st.session_state.chat_history.append(("assistant", response))
+        
+        # Reset state and rerun
         st.session_state.done = True
-        st.session_state.Clear=True
+        st.session_state.Clear = True
+        st.session_state.stop = False
         st.rerun()
 
 if st.session_state.save:
     st.session_state.error_message = ""
     st.session_state.done = False
     prompt = st.session_state.new_message
-    show_chat_history(messages=st.session_state.chat_history,edit=False,error_message=st.session_state.error_message,new_message=prompt, show_copy_button=False)
+    show_chat_history(messages=st.session_state.chat_history, edit=False, error_message=st.session_state.error_message, new_message=prompt, show_copy_button=False)
     ok = check_token()
     if not ok:
         st.session_state.save = False
     else:
-        prompt_template = build_prompt_template_text_only()
-        chain = build_chain(prompt_template)
-        st.session_state.response = ""
+        # Add edited human message to history
         st.session_state.chat_history.append(("human", prompt))
-        provider = get_current_provider()
-        with st.chat_message("assistant",avatar = ":material/psychology:"):
-            col1,  col2 = st.columns([9,  1])
-            with col1:
-                message_placeholder = st.empty()
-                message_placeholder.markdown("thinking...")
-            with col2:
-                _pressed = st.button("stop", on_click=on_stop)
-                st.session_state.stop = _pressed
-            with col1:
-                # Append human first, then stream with history excluding last human
-                st.session_state.total_tokens = 0
-                st.session_state.response, st.session_state.total_tokens = stream_response(
-                    chain=chain,
-                    input_text=prompt,
-                    conversation_history=st.session_state.chat_history[:-1],
-                    provider=provider,
-                    message_placeholder=message_placeholder,
-                )
-                st.session_state.chat_history.append(("assistant", st.session_state.response))
+        
+        # Execute chat turn (text only, no images for edited messages)
+        st.session_state.total_tokens = 0
+        response, tokens = run_chat_turn(
+            prompt=prompt,
+            conversation_history=st.session_state.chat_history[:-1],
+            image_urls=None
+        )
+        st.session_state.total_tokens = tokens
+        st.session_state.chat_history.append(("assistant", response))
+        
+        # Reset state and rerun
         st.session_state.done = True
-        st.session_state.Clear=True
+        st.session_state.Clear = True
         st.session_state.save = False
+        st.session_state.stop = False
         st.rerun()
 
 if st.session_state.Clear:
