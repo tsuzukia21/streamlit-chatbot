@@ -155,7 +155,7 @@ def create_new_conversation() -> None:
     st.session_state.edit_states = {}
     st.rerun()
 
-def load_conversation(conversation_id: int) -> None:
+def load_conversation(conversation_id: str) -> None:
     """既存の会話を読み込む"""
     # 会話が存在するか確認
     conv = db.get_conversation(conversation_id)
@@ -660,11 +660,7 @@ if user_input is not None:
         # 最初のメッセージの場合、会話タイトルを更新
         if len(st.session_state.chat_history) == 1:
             title = generate_title_from_message(human_content)
-            conn = db.sqlite3.connect(db.DB_PATH)
-            cursor = conn.cursor()
-            cursor.execute("UPDATE conversations SET title = ? WHERE id = ?", (title, conversation_id))
-            conn.commit()
-            conn.close()
+            db.update_conversation_title(conversation_id, title)
         
         # Execute chat turn
         st.session_state.total_tokens = 0
