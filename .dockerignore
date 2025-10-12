@@ -34,5 +34,4 @@ demo.gif
 .DS_Store
 *.log
 .env
-poetry.lock
 

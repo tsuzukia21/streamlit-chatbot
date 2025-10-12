@@ -11,7 +11,7 @@ RUN pip install --no-cache-dir poetry
 RUN poetry config virtualenvs.create false
 
 # 依存関係ファイルをコピー
-COPY pyproject.toml ./
+COPY pyproject.toml poetry.lock ./
 
 # 依存関係をインストール
 RUN poetry install --no-interaction --no-ansi --no-root
