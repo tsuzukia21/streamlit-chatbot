@@ -52,10 +52,17 @@ MODEL_CONFIG = {
 
 def get_user_id() -> str:
     """
-    ユーザーIDを取得（st.context.cookiesから）
-    ajs_user_id を優先、なければ ajs_anonymous_id を使用
-    どちらもなければデフォルト値を返す
+    ユーザーIDを取得
+    st.user.id を優先、フォールバックとして既存の仕組みを維持
     """
+    # ログイン済みユーザーのIDを優先
+    try:
+        if st.user.is_logged_in:
+            return st.user.id
+    except Exception:
+        pass
+    
+    # 既存のフォールバック処理（互換性のため残す）
     try:
         cookies = st.context.cookies
         user_id = cookies.get("ajs_user_id") or cookies.get("ajs_anonymous_id")
@@ -64,7 +71,7 @@ def get_user_id() -> str:
     except Exception:
         pass
     
-    # フォールバック：セッションベースのID
+    # 最終フォールバック：セッションベースのID
     if "fallback_user_id" not in st.session_state:
         import uuid
         st.session_state.fallback_user_id = f"user_{uuid.uuid4().hex[:16]}"
@@ -213,6 +220,22 @@ def on_stop() -> None:
 
 # セッション状態を初期化
 initialize_session_state()
+
+# サイドバー：ログイン機能
+with st.sidebar:
+    # ログイン状態の確認
+    if not st.user.is_logged_in:
+        st.warning("⚠️ ログインが必要です")
+        if st.button("🔐 Googleアカウントでログイン", use_container_width=True, type="primary", key="login_button"):
+            st.login()
+        st.stop()  # ログインするまでここで停止
+    else:
+        # ログイン済みユーザー情報表示
+        st.success(f"👤 {st.user.name}")
+        if st.button("ログアウト", use_container_width=True, key="logout_button"):
+            st.logout()
+    
+    st.divider()
 
 with st.sidebar.container():
     st.markdown(":material/settings: モデル設定")

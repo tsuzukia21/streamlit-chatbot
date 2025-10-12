@@ -14,6 +14,7 @@ langchain-anthropic = "^0.3.17"
 langchain-google-genai = "^2.1.12"
 st-txt-copybutton = "^0.0.3"
 st-chat-input-multimodal = "^1.0.4"
+authlib = "^1.3.2"
 
 [build-system]
 requires = ["poetry-core"]
