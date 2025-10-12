@@ -8,6 +8,7 @@ import math
 from typing import Tuple, Union, List, Dict, Any, Optional
 import base64
 from st_chat_input_multimodal import multimodal_chat_input
+import database as db
 
 st.set_page_config(layout="wide", page_title="chat bot",page_icon=":material/chat:")
 
@@ -49,33 +50,58 @@ MODEL_CONFIG = {
     }
 }
 
+def get_user_id() -> str:
+    """
+    ユーザーIDを取得（st.context.cookiesから）
+    ajs_user_id を優先、なければ ajs_anonymous_id を使用
+    どちらもなければデフォルト値を返す
+    """
+    try:
+        cookies = st.context.cookies
+        user_id = cookies.get("ajs_user_id") or cookies.get("ajs_anonymous_id")
+        if user_id:
+            return user_id
+    except Exception:
+        pass
+    
+    # フォールバック：セッションベースのID
+    if "fallback_user_id" not in st.session_state:
+        import uuid
+        st.session_state.fallback_user_id = f"user_{uuid.uuid4().hex[:16]}"
+    return st.session_state.fallback_user_id
+
 def initialize_session_state():
     """セッション状態の初期化を一元管理"""
     defaults = {
         "done": True,
-        "Clear": False,
         "save": False,
         "stop": False,
         "edit_states": {},
         "total_tokens": 0,
         "system_prompt": "あなたは優秀なAIアシスタントです。",
-        "temperature": 0.7,
+        "temperature": 1.0,
         "error_message": "",
         "model_index": 0,
         "chat_history": [],
         "model": "claude-sonnet-4.5",
         "reasoning": "",  # 推論過程の保存
+        "current_conversation_id": None,  # 現在の会話ID
+        "user_id": None,  # ユーザーID
     }
     
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
     
+    # ユーザーIDの取得
+    if st.session_state.user_id is None:
+        st.session_state.user_id = get_user_id()
+    
     # LLM初期化（modelが設定された後）
     if "llm" not in st.session_state:
         model_name = st.session_state.model
         config = MODEL_CONFIG[model_name]
-        st.session_state.llm = config["llm_factory"](st.session_state.temperature)
+        st.session_state.llm = config["llm_factory"]
 
 def get_current_provider() -> str:
     """現在のモデルのプロバイダを取得"""
@@ -92,7 +118,6 @@ def check_token() -> bool:
     message_limit = 30
     def limit_error(msg: str) -> bool:
         st.error(msg, icon="🚨")
-        st.session_state.Clear = True
         st.session_state.done = True
         st.session_state.save = False
         return False
@@ -106,7 +131,6 @@ def check_token() -> bool:
 
 def clear_chat():
     st.session_state.chat_history = []
-    st.session_state.Clear = False
     st.session_state.total_tokens = 0
     st.session_state.done = True
     st.session_state.error_message = ""
@@ -114,18 +138,68 @@ def clear_chat():
     st.session_state.reasoning = ""  # 推論過程もクリア
     st.rerun()
 
+def create_new_conversation() -> None:
+    """新しい会話セッションを開始（DBには最初のメッセージ送信時に作成）"""
+    st.session_state.current_conversation_id = None
+    st.session_state.chat_history = []
+    st.session_state.reasoning = ""
+    st.session_state.total_tokens = 0
+    st.session_state.error_message = ""
+    st.session_state.edit_states = {}
+    st.rerun()
+
+def load_conversation(conversation_id: int) -> None:
+    """既存の会話を読み込む"""
+    # 会話が存在するか確認
+    conv = db.get_conversation(conversation_id)
+    if not conv or conv["is_deleted"]:
+        st.error("会話が見つかりません")
+        return
+    
+    # メッセージを読み込み
+    messages = db.get_messages(conversation_id)
+    
+    st.session_state.current_conversation_id = conversation_id
+    st.session_state.chat_history = messages
+    st.session_state.reasoning = db.get_last_reasoning(conversation_id)
+    st.session_state.error_message = ""
+    st.session_state.edit_states = {}
+    st.rerun()
+
+def delete_current_conversation() -> None:
+    """現在の会話を削除（論理削除）"""
+    if st.session_state.current_conversation_id:
+        db.delete_conversation(st.session_state.current_conversation_id)
+        st.session_state.current_conversation_id = None
+        st.session_state.chat_history = []
+        st.session_state.reasoning = ""
+        st.rerun()
+
+def generate_title_from_message(message: str) -> str:
+    """最初のメッセージから会話タイトルを生成"""
+    if isinstance(message, list):
+        # 画像付きメッセージの場合、テキスト部分を抽出
+        for item in message:
+            if isinstance(item, dict) and item.get("type") == "text":
+                message = item["text"]
+                break
+        else:
+            return "画像付き会話"
+    
+    # 最大30文字に制限
+    if len(message) > 30:
+        return message[:30] + "..."
+    return message
+
 def update_system_prompt():
     st.session_state.system_prompt = st.session_state.new_system_prompt
-
-def update_temperature():
-    st.session_state.temperature = st.session_state.new_temperature
 
 def update_model():
     """モデル切り替え時にLLMインスタンスとインデックスを更新"""
     model_name = st.session_state.model
     config = MODEL_CONFIG.get(model_name)
     if config:
-        st.session_state.llm = config["llm_factory"](st.session_state.temperature)
+        st.session_state.llm = config["llm_factory"]
         st.session_state.model_index = config["index"]
 
 def on_stop() -> None:
@@ -135,13 +209,13 @@ def on_stop() -> None:
         st.session_state.chat_history.append(("assistant", response))
     st.session_state.stop = True
     st.session_state.done = True
-    st.session_state.Clear = True
     st.session_state.save = False
 
 # セッション状態を初期化
 initialize_session_state()
 
 with st.sidebar.container():
+    st.markdown(":material/settings: モデル設定")
     model_options = list(MODEL_CONFIG.keys())
     st.selectbox("model",
                  options=model_options,
@@ -152,8 +226,39 @@ with st.sidebar.container():
                  on_change=update_model)
     st.text_area("system prompt",value=st.session_state.system_prompt,on_change=update_system_prompt,key="new_system_prompt",
                                  help="You can provide a prompt to the system. This is only effective at the first message transmission.")
-    st.slider(label="temperature",min_value=0.0, max_value=1.0,on_change=update_temperature,key="new_temperature",
-                            value=st.session_state.temperature,help="Controls the randomness of the generated text.")
+    st.divider()
+    st.markdown(":material/message: 会話管理")
+    
+    # 新しい会話ボタン
+    if st.button("➕ 新しい会話", use_container_width=True, type="primary"):
+        create_new_conversation()
+    
+    # 会話削除ボタン（現在の会話がある場合のみ表示）
+    if st.session_state.current_conversation_id:
+        if st.button("🗑️ この会話を削除", use_container_width=True):
+            delete_current_conversation()
+    
+    conversations = db.get_conversations(st.session_state.user_id)
+    
+    if conversations:
+        for conv in conversations:
+            conv_id = conv["id"]
+            title = conv["title"]
+            updated_at = conv["updated_at"]
+            
+            # 現在の会話をハイライト
+            is_current = conv_id == st.session_state.current_conversation_id
+            button_type = "primary" if is_current else "secondary"
+            
+            # 会話ボタン
+            if st.button(
+                f"{'📌 ' if is_current else ''}{title}",
+                key=f"conv_{conv_id}",
+                use_container_width=True,
+                type=button_type,
+                disabled=is_current
+            ):
+                load_conversation(conv_id)
     
 def modify_message(messages, i):
     del messages[i:]
@@ -411,6 +516,15 @@ def render_human_message(message: Tuple[str, Union[str, List[Dict[str, Any]]]], 
             with right:
                 if st.button("save", key=f"save_{index}", type="primary"):
                     st.session_state.edit_states[index] = False
+                    
+                    # DBから該当インデックス以降のメッセージを削除
+                    if st.session_state.current_conversation_id:
+                        db.delete_messages_from_index(
+                            st.session_state.current_conversation_id, 
+                            index
+                        )
+                    
+                    # session_stateからも削除
                     modify_message(st.session_state.chat_history, index)
                     st.session_state.save = True
 
@@ -428,7 +542,7 @@ def render_assistant_message(message: Tuple[str, str], index: int, show_copy_but
             st.markdown(message[1].replace("\n","  \n"), unsafe_allow_html=True)
     with col2:
         if show_copy_button and index == len(st.session_state.chat_history) - 1:
-            copy_button(st.session_state.response, index)
+            copy_button(message[1], index)
 
 def show_chat_history(
     messages: List[Tuple[str, Union[str, List[Dict[str, Any]]]]],
@@ -468,6 +582,13 @@ if user_input is not None:
     st.session_state.done = False
     ok = check_token()
     if ok:
+        # 会話がない場合は新規作成
+        if not st.session_state.current_conversation_id:
+            user_id = st.session_state.user_id
+            title = "新しい会話"  # 最初のメッセージで自動更新される
+            conversation_id = db.create_conversation(user_id, title)
+            st.session_state.current_conversation_id = conversation_id
+        
         # Extract text from multimodal input
         input_text = user_input.get("text", "")
         input_files = user_input.get("files", [])
@@ -508,6 +629,20 @@ if user_input is not None:
         else:
             st.session_state.chat_history.append(("human", input_text))
         
+        # DBに人間のメッセージを保存
+        conversation_id = st.session_state.current_conversation_id
+        human_content = human_payload if image_urls else input_text
+        db.save_message_with_images(conversation_id, "human", human_content)
+        
+        # 最初のメッセージの場合、会話タイトルを更新
+        if len(st.session_state.chat_history) == 1:
+            title = generate_title_from_message(human_content)
+            conn = db.sqlite3.connect(db.DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute("UPDATE conversations SET title = ? WHERE id = ?", (title, conversation_id))
+            conn.commit()
+            conn.close()
+        
         # Execute chat turn
         st.session_state.total_tokens = 0
         response, tokens = run_chat_turn(
@@ -518,9 +653,17 @@ if user_input is not None:
         st.session_state.total_tokens = tokens
         st.session_state.chat_history.append(("assistant", response))
         
+        # DBにアシスタントのメッセージを保存
+        db.save_message_with_images(
+            conversation_id, 
+            "assistant", 
+            response, 
+            tokens=tokens,
+            reasoning=st.session_state.reasoning
+        )
+        
         # Reset state and rerun
         st.session_state.done = True
-        st.session_state.Clear = True
         st.session_state.stop = False
         st.rerun()
 
@@ -533,8 +676,19 @@ if st.session_state.save:
     if not ok:
         st.session_state.save = False
     else:
+        # 会話がない場合は新規作成
+        if not st.session_state.current_conversation_id:
+            user_id = st.session_state.user_id
+            title = "新しい会話"  # 最初のメッセージで自動更新される
+            conversation_id = db.create_conversation(user_id, title)
+            st.session_state.current_conversation_id = conversation_id
+        
         # Add edited human message to history
         st.session_state.chat_history.append(("human", prompt))
+        
+        # DBに人間のメッセージを保存
+        conversation_id = st.session_state.current_conversation_id
+        db.save_message_with_images(conversation_id, "human", prompt)
         
         # Execute chat turn (text only, no images for edited messages)
         st.session_state.total_tokens = 0
@@ -546,16 +700,18 @@ if st.session_state.save:
         st.session_state.total_tokens = tokens
         st.session_state.chat_history.append(("assistant", response))
         
+        # DBにアシスタントのメッセージを保存
+        db.save_message_with_images(
+            conversation_id, 
+            "assistant", 
+            response, 
+            tokens=tokens,
+            reasoning=st.session_state.reasoning
+        )
+        
         # Reset state and rerun
         st.session_state.done = True
-        st.session_state.Clear = True
         st.session_state.save = False
         st.session_state.stop = False
         st.rerun()
 
-if st.session_state.Clear:
-    left, spacer, right = st.columns([1, 3, 1])
-    with right:
-        button_clear_chat = st.button("clear chat history",type="primary")
-        if button_clear_chat:
-            clear_chat()
