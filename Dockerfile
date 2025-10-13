@@ -4,20 +4,17 @@ FROM python:3.11-slim
 # 作業ディレクトリを設定
 WORKDIR /app
 
+# アプリケーションファイルをコピー
+COPY . /app
+
 # Poetryのインストール
 RUN pip install --no-cache-dir poetry
 
 # Poetryの設定（仮想環境を作成しない）
 RUN poetry config virtualenvs.create false
 
-# 依存関係ファイルをコピー
-COPY pyproject.toml poetry.lock ./
-
 # 依存関係をインストール
 RUN poetry install --no-interaction --no-ansi --no-root
-
-# アプリケーションファイルをコピー
-COPY . .
 
 # Cloud Runのポート（デフォルト8080）
 ENV PORT=8080
@@ -29,4 +26,4 @@ ENV STREAMLIT_SERVER_HEADLESS=true
 ENV STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
 
 # アプリケーション起動
-CMD streamlit run /app/main.py --server.port=${PORT:-8080} --server.address=0.0.0.0
+CMD streamlit run main.py --server.port=$PORT --server.address=0.0.0.0
