@@ -53,17 +53,14 @@ MODEL_CONFIG = {
 def get_user_id() -> str:
     """
     ユーザーIDを取得
-    st.user.id を優先、フォールバックとして既存の仕組みを維持
     """
     # ログイン済みユーザーのIDを優先
     try:
         if st.user.is_logged_in:
-            user_id = st.user.id
-            # デバッグ情報を表示
-            st.sidebar.write(f"🔍 Debug: is_logged_in = {st.user.is_logged_in}")
-            st.sidebar.write(f"🔍 Debug: st.user.id = '{user_id}' (type: {type(user_id).__name__})")
-            st.sidebar.write(f"🔍 Debug: st.user.email = {getattr(st.user, 'email', 'N/A')}")
-            return st.user.id
+            # Googleプロバイダーではsubフィールドを使用
+            user_id = getattr(st.user, 'sub', None)
+            if user_id:
+                return user_id
     except Exception:
         pass
     
