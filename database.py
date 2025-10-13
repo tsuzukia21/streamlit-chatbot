@@ -52,7 +52,9 @@ def init_db() -> None:
             pass
     
     if bucket_name:
-        print(f"[DEBUG] BUCKET_NAME raw value: {repr(bucket_name)}")
+        import logging
+        logging.basicConfig(level=logging.DEBUG)
+        logging.debug(f"[DEBUG] BUCKET_NAME raw value: {bucket_name}")
         _bucket = _storage_client.bucket(bucket_name)
     else:
         st.warning("GCS_BUCKET_NAME が設定されていません。画像機能は使用できません。")
