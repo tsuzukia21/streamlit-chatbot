@@ -17,7 +17,7 @@ COPY pyproject.toml poetry.lock ./
 RUN poetry install --no-interaction --no-ansi --no-root
 
 # アプリケーションファイルをコピー
-COPY main.py database.py ./
+COPY . .
 
 # Cloud Runのポート（デフォルト8080）
 ENV PORT=8080
