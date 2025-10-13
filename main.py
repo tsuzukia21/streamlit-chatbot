@@ -58,6 +58,11 @@ def get_user_id() -> str:
     # ログイン済みユーザーのIDを優先
     try:
         if st.user.is_logged_in:
+            user_id = st.user.id
+            # デバッグ情報を表示
+            st.sidebar.write(f"🔍 Debug: is_logged_in = {st.user.is_logged_in}")
+            st.sidebar.write(f"🔍 Debug: st.user.id = '{user_id}' (type: {type(user_id).__name__})")
+            st.sidebar.write(f"🔍 Debug: st.user.email = {getattr(st.user, 'email', 'N/A')}")
             return st.user.id
     except Exception:
         pass
