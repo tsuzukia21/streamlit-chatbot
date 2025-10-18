@@ -3,6 +3,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_anthropic import ChatAnthropic
 from langchain_google_genai import ChatGoogleGenerativeAI
+from google.ai.generativelanguage_v1beta.types import Tool as GenAITool
 from st_txt_copybutton import txt_copy
 import math
 from typing import Tuple, Union, List, Dict, Any, Optional
@@ -10,9 +11,9 @@ import base64
 from st_chat_input_multimodal import multimodal_chat_input
 import database as db
 
-st.set_page_config(layout="wide", page_title="chat bot",page_icon=":material/chat:")
+st.set_page_config(layout="wide", page_title="streamlit chatbot",page_icon=":material/chat:")
 
-# モデル設定の一元管理（全て推論モデル）
+# モデル設定の一元管理
 MODEL_CONFIG = {
     "claude-sonnet-4.5": {
         "provider": "anthropic",
@@ -38,14 +39,13 @@ MODEL_CONFIG = {
             include_thoughts=True
         )
     },
-    "o1-preview": {
+    "gpt-5": {
         "provider": "openai",
-        "display_name": "gpt-5",
+        "display_name": "GPT 5",
         "index": 2,
         "llm_factory": lambda temp: ChatOpenAI(
-            model="gpt-5",
+            model="gpt-5-chat-latest",
             temperature=1.0,
-            reasoning={"effort": "medium"}
         )
     }
 }
@@ -255,12 +255,12 @@ with st.sidebar.container():
     st.markdown(":material/message: 会話管理")
     
     # 新しい会話ボタン
-    if st.button("➕ 新しい会話", use_container_width=True, type="primary"):
+    if st.button(":material/add: 新しい会話", use_container_width=True, type="primary"):
         create_new_conversation()
     
     # 会話削除ボタン（現在の会話がある場合のみ表示）
     if st.session_state.current_conversation_id:
-        if st.button("🗑️ この会話を削除", use_container_width=True):
+        if st.button(":material/delete: この会話を削除", use_container_width=True):
             delete_current_conversation()
     
     conversations = db.get_conversations(st.session_state.user_id)
@@ -277,7 +277,7 @@ with st.sidebar.container():
             
             # 会話ボタン
             if st.button(
-                f"{'📌 ' if is_current else ''}{title}",
+                f"{':material/push_pin: ' if is_current else ''}{title}",
                 key=f"conv_{conv_id}",
                 use_container_width=True,
                 type=button_type,
@@ -342,7 +342,18 @@ def build_prompt_template(image_urls: Optional[List[str]] = None) -> ChatPromptT
 
 def build_chain(prompt_template: ChatPromptTemplate):
     """プロンプトテンプレートからチェーンを構築する。"""
-    return (prompt_template | st.session_state.llm).with_config({"run_name": "Chat", "tags": ["Chat"]})
+    # LLMインスタンスを取得
+    llm_instance = st.session_state.llm(st.session_state.temperature)
+    
+    provider = get_current_provider()
+    if provider == "openai":
+        llm_instance = llm_instance.bind_tools([{"type": "web_search"}])
+    elif provider == "google":
+        llm_instance = llm_instance.bind_tools([GenAITool(google_search={})])
+    elif provider == "anthropic":
+        llm_instance = llm_instance.bind_tools([{"type": "web_search_20250305","name": "web_search", "max_uses": 5}])
+    
+    return (prompt_template | llm_instance).with_config({"run_name": "Chat", "tags": ["Chat"]})
 
 def stream_response_anthropic(chain, input_text: str, conversation_history: List[Tuple[str, Union[str, List[Dict[str, Any]]]]], status_container, reasoning_placeholder, message_placeholder) -> Tuple[str, int]:
     """
@@ -411,23 +422,40 @@ def stream_response_google(chain, input_text: str, conversation_history: List[Tu
 
 def stream_response_openai(chain, input_text: str, conversation_history: List[Tuple[str, Union[str, List[Dict[str, Any]]]]], status_container, message_placeholder) -> Tuple[str, int]:
     """
-    OpenAI用の処理（o1シリーズはinvokeで取得）
+    OpenAI用のストリーミング処理（非推論モデル用）
     """
     st.session_state.response = ""
     st.session_state.reasoning = ""
     total_tokens: int = 0
+    first_chunk_received = False
     
+    # 最初は「AIは考えています...」
     status_container.update(label="AIは考えています...", state="running", expanded=False)
-    resp = chain.invoke({"input": input_text, "conversation": conversation_history})
     
-    try:
-        st.session_state.response = resp.content[0]["text"]
-    except Exception:
-        st.session_state.response = getattr(resp, "content", "")
+    for chunk in chain.stream({"input": input_text, "conversation": conversation_history}):
+        if st.session_state.stop:
+            break
+        
+        # 最初のチャンクを受け取ったら「出力中」に変更
+        if not first_chunk_received:
+            first_chunk_received = True
+            status_container.update(label="出力中...", state="running", expanded=False)
+            
+        if isinstance(chunk.content, list) and len(chunk.content) > 0:
+            content_item = chunk.content[0]
+            if content_item.get("text"):
+                st.session_state.response += content_item["text"]
+                message_placeholder.markdown(st.session_state.response.replace("\n", "  \n") + "▌", unsafe_allow_html=True)
+        
+        # トークン数の取得
+        try:
+            if getattr(chunk, "usage_metadata", None):
+                usage = chunk.usage_metadata
+                total_tokens = usage.get("total_tokens", 0)
+        except Exception:
+            pass
     
-    usage = getattr(resp, "usage_metadata", None)
-    total_tokens = (usage or {}).get("total_tokens", 0)
-    
+    # 完了
     status_container.update(label="完了", state="complete", expanded=False)
     message_placeholder.markdown(st.session_state.response.replace("\n", "  \n"))
     return st.session_state.response, total_tokens
