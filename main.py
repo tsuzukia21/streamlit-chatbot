@@ -8,7 +8,7 @@ import core.database as db
 import core.ui_components as ui
 import core.conversation as conv
 import core.llm_handler as llm
-
+import time
 st.set_page_config(layout="wide", page_title="streamlit chatbot",page_icon=":material/chat:")
 
 def get_user_id() -> str:
@@ -112,11 +112,21 @@ with st.sidebar:
             st.login()
         st.stop()  # ログインするまでここで停止
     else:
+        # 許可されたメールアドレスのホワイトリスト検証（secrets.toml の [auth].allowed_emails）
+        try:
+            allowed_emails = st.secrets.get("auth", {}).get("allowed_emails", [])
+        except Exception:
+            allowed_emails = []
+        user_email = getattr(st.user, "email", None)
+        if allowed_emails and (user_email not in allowed_emails):
+            st.error("アクセス権がありません")
+            time.sleep(3)
+            st.logout()
+            st.stop()
         # ログイン済みユーザー情報表示
         st.success(f"👤 {st.user.name}")
         if st.button("ログアウト", use_container_width=True, key="logout_button"):
             st.logout()
-    
     st.divider()
 
 with st.sidebar.container():

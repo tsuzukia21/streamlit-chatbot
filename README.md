@@ -1,4 +1,5 @@
 ## Streamlit Chatbot
+[English](./README_EN.md)
 
 マルチモーダル入力（テキスト/画像/音声）に対応した Streamlit 製チャットボットです。会話履歴は Firestore、画像は Cloud Storage に永続化します。モデル切替（Anthropic, Google, OpenAI）や思考可視化（thinking/chain-of-thoughtの表示）に対応しています。
 
@@ -9,7 +10,7 @@
 - **会話管理**: 新規作成、タイトル自動生成、編集（過去メッセージから再分岐）
 - **永続化**: Firestore（テキスト）、Cloud Storage（画像）
 - **思考可視化**: reasoning/thinking 表示（対応モデルのみ）。GPT-5は組織認証しないと推論モデルのストリーミング不可なので非推論モデルを使用
-- **認証**: `st.login()` を用いた Google ログイン（`secrets.toml` を Secret Manager でマウント）
+- **認証**: `st.login()` を用いた Google ログイン（`secrets.toml` を Secret Manager でマウント）＋ `allowed_emails` によるメールホワイトリスト（任意）
 
 ---
 
@@ -63,6 +64,7 @@ cookie_secret = "[強力なランダム文字列]"
 client_id = "[Google OAuth クライアントID]"
 client_secret = "[Google OAuth クライアントシークレット]"
 server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
+allowed_emails = ["your-test-user@example.com"] # 任意（メールホワイトリスト）。完全一致で判定
 ```
 
 3) 環境変数（必要に応じて）
@@ -78,6 +80,18 @@ export GOOGLE_APPLICATION_CREDENTIALS=/abs/path/to/service-account.json
 4) 実行
 ```bash
 streamlit run main.py
+```
+
+### アクセス制御（メールホワイトリスト、任意）
+- `secrets.toml` の `[auth].allowed_emails` にメールアドレスの配列を設定すると、ログイン後に `st.user.email` と完全一致で照合し、許可されていないユーザーは即時ブロック＋ログアウトします。
+- `allowed_emails` が未設定または空配列の場合は、このチェックはスキップされます（Google 側の OAuth 設定のみで制御）。
+- 実装箇所: `main.py` のサイドバー内、ログイン済み分岐直後。
+
+例（`secrets.toml`）:
+```toml
+[auth]
+...
+allowed_emails = ["your-test-user@example.com", "another@example.com"]
 ```
 
 補足:
