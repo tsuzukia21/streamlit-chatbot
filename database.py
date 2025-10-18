@@ -175,14 +175,15 @@ def get_conversations(user_id: str) -> List[Dict[str, Any]]:
     ユーザーの会話一覧を取得（論理削除されていないもののみ）
     
     Returns:
-        会話のリスト（新しい順）
+        会話のリスト（新しい順、最大10件）
     """
     db = get_db()
     
     conversations_ref = db.collection('conversations')
     query = conversations_ref.where(filter=FieldFilter('user_id', '==', user_id))\
                              .where(filter=FieldFilter('is_deleted', '==', False))\
-                             .order_by('updated_at', direction=firestore.Query.DESCENDING)
+                             .order_by('updated_at', direction=firestore.Query.DESCENDING)\
+                             .limit(10)
     
     docs = query.stream()
     
