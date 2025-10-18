@@ -165,7 +165,8 @@ def create_conversation(user_id: str, title: str) -> str:
         'title': title,
         'created_at': firestore.SERVER_TIMESTAMP,
         'updated_at': firestore.SERVER_TIMESTAMP,
-        'is_deleted': False
+        'is_deleted': False,
+        'total_tokens': 0
     })
     
     return doc_ref.id
@@ -244,6 +245,27 @@ def update_conversation_title(conversation_id: str, title: str) -> None:
         'updated_at': firestore.SERVER_TIMESTAMP
     })
 
+def update_conversation_tokens(conversation_id: str, tokens: int) -> None:
+    """会話のトークン数を更新（マルチターン全体のトークン数）"""
+    db = get_db()
+    
+    doc_ref = db.collection('conversations').document(conversation_id)
+    doc_ref.update({
+        'total_tokens': tokens,
+        'updated_at': firestore.SERVER_TIMESTAMP
+    })
+
+def get_conversation_tokens(conversation_id: str) -> int:
+    """会話の総トークン数を取得（マルチターン全体のトークン数）"""
+    db = get_db()
+    
+    doc_ref = db.collection('conversations').document(conversation_id)
+    doc = doc_ref.get()
+    
+    if doc.exists:
+        return doc.to_dict().get('total_tokens', 0)
+    return 0
+
 def delete_conversation(conversation_id: str) -> None:
     """会話を論理削除"""
     db = get_db()
@@ -254,7 +276,7 @@ def delete_conversation(conversation_id: str) -> None:
     })
 
 def save_message(conversation_id: str, role: str, content: Any, 
-                 tokens: int = 0, reasoning: str = "") -> str:
+                 reasoning: str = "") -> str:
     """
     メッセージを保存
     
@@ -262,7 +284,6 @@ def save_message(conversation_id: str, role: str, content: Any,
         conversation_id: 会話ID
         role: 'human' or 'assistant'
         content: メッセージ内容（文字列 or リスト）
-        tokens: トークン数
         reasoning: 思考プロセス（assistantのみ）
     
     Returns:
@@ -279,7 +300,6 @@ def save_message(conversation_id: str, role: str, content: Any,
     doc_ref.set({
         'role': role,
         'content': content_json,
-        'tokens': tokens,
         'reasoning': reasoning,
         'created_at': firestore.SERVER_TIMESTAMP
     })
@@ -302,7 +322,7 @@ def update_message_content(conversation_id: str, message_id: str, content: Any) 
     })
 
 def save_message_with_images(conversation_id: str, role: str, content: Any,
-                              tokens: int = 0, reasoning: str = "") -> str:
+                              reasoning: str = "") -> str:
     """
     画像を含むメッセージを保存（画像はCloud Storageに保存）
     
@@ -310,14 +330,13 @@ def save_message_with_images(conversation_id: str, role: str, content: Any,
         conversation_id: 会話ID
         role: 'human' or 'assistant'
         content: メッセージ内容（文字列 or 画像URLを含むリスト）
-        tokens: トークン数
         reasoning: 思考プロセス
     
     Returns:
         保存したメッセージのID
     """
     # まずメッセージをDBに保存してIDを取得
-    message_id = save_message(conversation_id, role, content, tokens, reasoning)
+    message_id = save_message(conversation_id, role, content, reasoning)
     
     # contentがリストで画像を含む場合、画像をCloud Storageに保存してパスを更新
     if isinstance(content, list):

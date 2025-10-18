@@ -10,6 +10,7 @@ from typing import Tuple, Union, List, Dict, Any, Optional
 import base64
 from st_chat_input_multimodal import multimodal_chat_input
 import database as db
+from langchain_core.messages import HumanMessage
 
 st.set_page_config(layout="wide", page_title="streamlit chatbot",page_icon=":material/chat:")
 
@@ -171,6 +172,7 @@ def load_conversation(conversation_id: str) -> None:
     st.session_state.current_conversation_id = conversation_id
     st.session_state.chat_history = messages
     st.session_state.reasoning = db.get_last_reasoning(conversation_id)
+    st.session_state.total_tokens = db.get_conversation_tokens(conversation_id)
     st.session_state.error_message = ""
     st.session_state.edit_states = {}
     st.rerun()
@@ -185,20 +187,57 @@ def delete_current_conversation() -> None:
         st.rerun()
 
 def generate_title_from_message(message: str) -> str:
-    """最初のメッセージから会話タイトルを生成"""
+    """最初のメッセージから会話タイトルをLLMで生成"""
+    # メッセージからテキストを抽出
+    text_content = ""
     if isinstance(message, list):
         # 画像付きメッセージの場合、テキスト部分を抽出
         for item in message:
             if isinstance(item, dict) and item.get("type") == "text":
-                message = item["text"]
+                text_content = item["text"]
                 break
-        else:
+        if not text_content:
             return "画像付き会話"
+    else:
+        text_content = message
     
-    # 最大30文字に制限
-    if len(message) > 30:
-        return message[:30] + "..."
-    return message
+    # フォールバック用の簡易タイトル生成関数
+    def fallback_title(text: str) -> str:
+        if len(text) > 15:
+            return text[:15] + "..."
+        return text
+    
+    # LLMでタイトル生成を試みる
+    try:
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash",
+            temperature=0.7,
+            thinking_budget=0,
+        )
+        
+        prompt = f"""以下のメッセージに対して、15文字以内の簡潔な会話タイトルを生成してください。
+タイトルのみを出力し、句読点や記号は不要です。
+
+メッセージ: {text_content[:200]}
+
+タイトル:"""
+        
+        response = llm.invoke([HumanMessage(content=prompt)])
+        title = response.content.strip()
+        
+        # 15文字を超える場合は切り詰め
+        if len(title) > 15:
+            title = title[:15] + "..."
+        
+        # 空の場合はフォールバック
+        if not title:
+            return fallback_title(text_content)
+        
+        return title
+        
+    except Exception as e:
+        # エラー時は従来の方式にフォールバック
+        return fallback_title(text_content)
 
 def update_system_prompt():
     st.session_state.system_prompt = st.session_state.new_system_prompt
@@ -693,13 +732,16 @@ if user_input is not None:
             db.update_conversation_title(conversation_id, title)
         
         # Execute chat turn
-        st.session_state.total_tokens = 0
         response, tokens = run_chat_turn(
             prompt=llm_input,
             conversation_history=st.session_state.chat_history[:-1],
             image_urls=image_urls if image_urls else None
         )
-        st.session_state.total_tokens = tokens
+        
+        # 会話の累積トークン数を更新
+        db.update_conversation_tokens(conversation_id, tokens)
+        st.session_state.total_tokens = db.get_conversation_tokens(conversation_id)
+        
         st.session_state.chat_history.append(("assistant", response))
         
         # DBにアシスタントのメッセージを保存
@@ -707,7 +749,6 @@ if user_input is not None:
             conversation_id, 
             "assistant", 
             response, 
-            tokens=tokens,
             reasoning=st.session_state.reasoning
         )
         
@@ -740,13 +781,16 @@ if st.session_state.save:
         db.save_message_with_images(conversation_id, "human", prompt)
         
         # Execute chat turn (text only, no images for edited messages)
-        st.session_state.total_tokens = 0
         response, tokens = run_chat_turn(
             prompt=prompt,
             conversation_history=st.session_state.chat_history[:-1],
             image_urls=None
         )
-        st.session_state.total_tokens = tokens
+        
+        # 会話の累積トークン数を更新
+        db.update_conversation_tokens(conversation_id, tokens)
+        st.session_state.total_tokens = db.get_conversation_tokens(conversation_id)
+        
         st.session_state.chat_history.append(("assistant", response))
         
         # DBにアシスタントのメッセージを保存
@@ -754,7 +798,6 @@ if st.session_state.save:
             conversation_id, 
             "assistant", 
             response, 
-            tokens=tokens,
             reasoning=st.session_state.reasoning
         )
         
