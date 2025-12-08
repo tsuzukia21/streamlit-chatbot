@@ -53,7 +53,7 @@ def initialize_session_state():
         "error_message": "",
         "model_index": 0,
         "chat_history": [],
-        "model": "claude-sonnet-4.5",
+        "model": "claude-opus-4.5",
         "reasoning": "",  # 推論過程の保存
         "current_conversation_id": None,  # 現在の会話ID
         "user_id": None,  # ユーザーID

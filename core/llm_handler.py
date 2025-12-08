@@ -15,8 +15,8 @@ def on_stop() -> None:
 
 def get_current_provider() -> str:
     """現在のモデルのプロバイダを取得"""
-    model = st.session_state.get("model", "claude-sonnet-4.5")
-    return MODEL_CONFIG.get(model, MODEL_CONFIG["claude-sonnet-4.5"])["provider"]
+    model = st.session_state.get("model", "claude-opus-4.5")
+    return MODEL_CONFIG.get(model, MODEL_CONFIG["claude-opus-4.5"])["provider"]
 
 def build_prompt_template(image_urls: Optional[List[str]] = None) -> ChatPromptTemplate:
     """
@@ -63,109 +63,43 @@ def build_chain(prompt_template: ChatPromptTemplate):
     
     return (prompt_template | llm_instance).with_config({"run_name": "Chat", "tags": ["Chat"]})
 
-def stream_response_anthropic(chain, input_text: str, conversation_history: List[Tuple[str, Union[str, List[Dict[str, Any]]]]], status_container, reasoning_placeholder, message_placeholder) -> Tuple[str, int]:
+def stream_response(chain, input_text: str, conversation_history: List[Tuple[str, Union[str, List[Dict[str, Any]]]]], status_container, reasoning_placeholder, message_placeholder) -> Tuple[str, int]:
     """
-    Anthropic用のストリーミング処理（thinking対応）
+    LangChain v1: content_blocksによるプロバイダー統一ストリーミング処理
     """
     st.session_state.response = ""
     st.session_state.reasoning = ""
-    total_tokens: int = 0
     last_usage: Optional[Dict[str, Any]] = None
     
     for chunk in chain.stream({"input": input_text, "conversation": conversation_history}):
         if st.session_state.stop:
             break
-        if isinstance(chunk.content, list) and len(chunk.content) > 0:
-            content_item = chunk.content[0]
-            if content_item.get("thinking"):
-                status_container.update(label="AIは考えています...", state="running", expanded=True)
-                st.session_state.reasoning += content_item["thinking"]
-                reasoning_placeholder.markdown(st.session_state.reasoning.replace("\n", "  \n"), unsafe_allow_html=True)
-            elif content_item.get("text"):
-                status_container.update(label="出力中...", state="running", expanded=False)
-                st.session_state.response += content_item["text"]
-                message_placeholder.markdown(st.session_state.response.replace("\n", "  \n") + "▌", unsafe_allow_html=True)
+        
+        if hasattr(chunk, 'content_blocks') and chunk.content_blocks:
+            for block in chunk.content_blocks:
+                if block["type"] == "reasoning":
+                    reasoning_text = block.get("reasoning") or ""
+                    if not reasoning_text and block.get("summary"):
+                        reasoning_text = "\n".join(str(s) for s in block["summary"])
+                    if reasoning_text:
+                        status_container.update(label="AIは考えています...", state="running", expanded=True)
+                        st.session_state.reasoning += reasoning_text
+                        reasoning_placeholder.markdown(st.session_state.reasoning.replace("\n", "  \n"), unsafe_allow_html=True)
+                elif block["type"] == "text":
+                    status_container.update(label="出力中...", state="running", expanded=False)
+                    st.session_state.response += block["text"]
+                    message_placeholder.markdown(st.session_state.response.replace("\n", "  \n") + "▌", unsafe_allow_html=True)
+        
         try:
             if getattr(chunk, "usage_metadata", None):
                 last_usage = chunk.usage_metadata
         except Exception:
             pass
     
-    if last_usage:
-        total_tokens = last_usage.get("total_tokens", 0)
-    
+    total_tokens = last_usage.get("total_tokens", 0) if last_usage else 0
     status_container.update(label="完了", state="complete", expanded=False)
     message_placeholder.markdown(st.session_state.response.replace("\n", "  \n"))
-    return st.session_state.response, total_tokens
-
-def stream_response_google(chain, input_text: str, conversation_history: List[Tuple[str, Union[str, List[Dict[str, Any]]]]], status_container, reasoning_placeholder, message_placeholder) -> Tuple[str, int]:
-    """
-    Google用のストリーミング処理（thinking対応）
-    """
-    st.session_state.response = ""
-    st.session_state.reasoning = ""
-    total_tokens: int = 0
     
-    for chunk in chain.stream({"input": input_text, "conversation": conversation_history}):
-        if st.session_state.stop:
-            break
-        if isinstance(chunk.content, list) and len(chunk.content) > 0:
-            content_item = chunk.content[0]
-            if content_item.get("thinking"):
-                status_container.update(label="AIは考えています...", state="running", expanded=True)
-                st.session_state.reasoning += content_item["thinking"]
-                reasoning_placeholder.markdown(st.session_state.reasoning.replace("\n", "  \n"), unsafe_allow_html=True)
-        else:
-            status_container.update(label="出力中...", state="running", expanded=False)
-            st.session_state.response += chunk.content
-            message_placeholder.markdown(st.session_state.response.replace("\n", "  \n") + "▌", unsafe_allow_html=True)
-        try:
-            total_tokens += (chunk.usage_metadata or {}).get("total_tokens", 0)
-        except Exception:
-            pass
-    
-    status_container.update(label="完了", state="complete", expanded=False)
-    message_placeholder.markdown(st.session_state.response.replace("\n", "  \n"))
-    return st.session_state.response, total_tokens
-
-def stream_response_openai(chain, input_text: str, conversation_history: List[Tuple[str, Union[str, List[Dict[str, Any]]]]], status_container, message_placeholder) -> Tuple[str, int]:
-    """
-    OpenAI用のストリーミング処理（非推論モデル用）
-    """
-    st.session_state.response = ""
-    st.session_state.reasoning = ""
-    total_tokens: int = 0
-    first_chunk_received = False
-    
-    # 最初は「AIは考えています...」
-    status_container.update(label="AIは考えています...", state="running", expanded=False)
-    
-    for chunk in chain.stream({"input": input_text, "conversation": conversation_history}):
-        if st.session_state.stop:
-            break
-        
-        # 最初のチャンクを受け取ったら「出力中」に変更
-        if not first_chunk_received:
-            first_chunk_received = True
-            status_container.update(label="出力中...", state="running", expanded=False)
-            
-        if isinstance(chunk.content, list) and len(chunk.content) > 0:
-            content_item = chunk.content[0]
-            if content_item.get("text"):
-                st.session_state.response += content_item["text"]
-                message_placeholder.markdown(st.session_state.response.replace("\n", "  \n") + "▌", unsafe_allow_html=True)
-        
-        # トークン数の取得
-        try:
-            if getattr(chunk, "usage_metadata", None):
-                usage = chunk.usage_metadata
-                total_tokens = usage.get("total_tokens", 0)
-        except Exception:
-            pass
-    
-    # 完了
-    status_container.update(label="完了", state="complete", expanded=False)
-    message_placeholder.markdown(st.session_state.response.replace("\n", "  \n"))
     return st.session_state.response, total_tokens
 
 def run_chat_turn(
@@ -190,9 +124,6 @@ def run_chat_turn(
     # チェーン構築
     chain = build_chain(prompt_template)
     
-    # プロバイダ取得
-    provider = get_current_provider()
-    
     # ストリーミング実行とUI表示
     st.session_state.response = ""
     st.session_state.reasoning = ""
@@ -203,44 +134,17 @@ def run_chat_turn(
             _pressed = st.button("stop", on_click=on_stop)
             st.session_state.stop = _pressed
         with col1:
-            if provider == "anthropic":
-                with st.status(label="メッセージを送信", state="complete", expanded=False) as status_container:
-                    reasoning_placeholder = st.empty()
-                message_placeholder = st.empty()
-                response, tokens = stream_response_anthropic(
-                    chain=chain,
-                    input_text=prompt,
-                    conversation_history=conversation_history,
-                    status_container=status_container,
-                    reasoning_placeholder=reasoning_placeholder,
-                    message_placeholder=message_placeholder,
-                )
-            elif provider == "google":
-                with st.status(label="AIは考えています...", state="running", expanded=False) as status_container:
-                    reasoning_placeholder = st.empty()
-                message_placeholder = st.empty()
-                response, tokens = stream_response_google(
-                    chain=chain,
-                    input_text=prompt,
-                    conversation_history=conversation_history,
-                    status_container=status_container,
-                    reasoning_placeholder=reasoning_placeholder,
-                    message_placeholder=message_placeholder,
-                )
-            elif provider == "openai":
-                status_container = st.status(label="AIは考えています...", state="running", expanded=False)
-                message_placeholder = st.empty()
-                response, tokens = stream_response_openai(
-                    chain=chain,
-                    input_text=prompt,
-                    conversation_history=conversation_history,
-                    status_container=status_container,
-                    message_placeholder=message_placeholder,
-                )
-            else:
-                # フォールバック
-                message_placeholder = st.empty()
-                message_placeholder.markdown("Unknown provider")
-                response, tokens = "", 0
+            # LangChain v1: content_blocksによるプロバイダー統一処理
+            with st.status(label="メッセージを送信", state="complete", expanded=False) as status_container:
+                reasoning_placeholder = st.empty()
+            message_placeholder = st.empty()
+            response, tokens = stream_response(
+                chain=chain,
+                input_text=prompt,
+                conversation_history=conversation_history,
+                status_container=status_container,
+                reasoning_placeholder=reasoning_placeholder,
+                message_placeholder=message_placeholder,
+            )
     
     return response, tokens

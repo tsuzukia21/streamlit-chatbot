@@ -4,37 +4,40 @@ from langchain_openai import ChatOpenAI
 
 # モデル設定の一元管理
 MODEL_CONFIG = {
-    "claude-sonnet-4.5": {
+    "claude-opus-4.5": {
         "provider": "anthropic",
-        "display_name": "Claude Sonnet 4.5",
+        "display_name": "claude-opus-4.5",
         "index": 0,
         "llm_factory": lambda temp: ChatAnthropic(
             temperature=1.0,
-            model_name="claude-sonnet-4-5-20250929",
+            model_name="claude-opus-4-5-20251101",
             max_tokens=16384,
             timeout=120,
             max_retries=3,
             thinking={"type": "enabled","budget_tokens": 8192}
         )
     },
-    "gemini-2.5-pro": {
+    "gemini-3.0-pro": {
         "provider": "google",
-        "display_name": "Gemini 2.5 Pro",
+        "display_name": "gemini-3.0-pro",
         "index": 1,
         "llm_factory": lambda temp: ChatGoogleGenerativeAI(
-            model="gemini-2.5-pro",
+            model="gemini-3-pro-preview",
             temperature=1.0,
-            thinking_budget=16000,
-            include_thoughts=True
+            thinking_budget=16384,
+            include_thoughts=True,
+            output_version="v1"
         )
     },
-    "gpt-5": {
+    "gpt-5.1": {
         "provider": "openai",
-        "display_name": "GPT 5",
+        "display_name": "gpt-5.1",
         "index": 2,
         "llm_factory": lambda temp: ChatOpenAI(
-            model="gpt-5-chat-latest",
+            model="gpt-5.1",
             temperature=1.0,
+            max_tokens=16384,
+            reasoning={"effort": "medium","summary": "auto"}
         )
     }
 }
