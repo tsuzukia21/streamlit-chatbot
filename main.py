@@ -1,5 +1,6 @@
 import streamlit as st
 from core.MODEL_CONFIG import MODEL_CONFIG
+from core.config import DEFAULT_SYSTEM_PROMPT, TOKEN_LIMIT, MESSAGE_LIMIT, DEFAULT_TEMPERATURE, DEFAULT_MODEL
 import math
 from typing import List, Dict, Any
 import base64
@@ -48,12 +49,12 @@ def initialize_session_state():
         "stop": False,
         "edit_states": {},
         "total_tokens": 0,
-        "system_prompt": "あなたは優秀なAIアシスタントです。",
-        "temperature": 1.0,
+        "system_prompt": DEFAULT_SYSTEM_PROMPT,
+        "temperature": DEFAULT_TEMPERATURE,
         "error_message": "",
         "model_index": 0,
         "chat_history": [],
-        "model": "claude-opus-4.5",
+        "model": DEFAULT_MODEL,
         "reasoning": "",  # 推論過程の保存
         "current_conversation_id": None,  # 現在の会話ID
         "user_id": None,  # ユーザーID
@@ -74,18 +75,16 @@ def initialize_session_state():
         st.session_state.llm = config["llm_factory"]
 
 def check_token() -> bool:
-    token_limit = 50000
-    message_limit = 30
     def limit_error(msg: str) -> bool:
         st.error(msg, icon="🚨")
         st.session_state.done = True
         st.session_state.save = False
         return False
     
-    if st.session_state.total_tokens > token_limit:
-        persent=min(100, math.floor(100 * st.session_state.total_tokens / token_limit))
+    if st.session_state.total_tokens > TOKEN_LIMIT:
+        persent=min(100, math.floor(100 * st.session_state.total_tokens / TOKEN_LIMIT))
         return limit_error(f'Error: Text volume is {persent}% of the limit.  \nPlease delete unnecessary parts or reset the conversation')
-    if len(st.session_state.chat_history) > message_limit:
+    if len(st.session_state.chat_history) > MESSAGE_LIMIT:
         return limit_error('Error: Conversation limit exceeded. Please reset the conversation')
     return True
 
