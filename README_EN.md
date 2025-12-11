@@ -8,7 +8,7 @@ This is a Streamlit-based chatbot supporting multimodal inputs (text/images/audi
 - Multimodal input: image upload and speech recognition (Whisper)
 - Conversation management: create new conversation, auto-generate titles, edit, branch from past messages
 - Persistence: Firestore (text), Cloud Storage (images)
-- Reasoning visualization: show reasoning/thinking for supported models. For GPT‑5, due to org auth limitations on streaming reasoning models, a non-reasoning model is used
+- Reasoning visualization: show reasoning/thinking
 - Authentication: Google sign-in using `st.login()` (mount `secrets.toml` from Secret Manager in production) + optional email allowlist via `allowed_emails`
 
 ---
@@ -19,6 +19,7 @@ This is a Streamlit-based chatbot supporting multimodal inputs (text/images/audi
 streamlit-chatbot/
   main.py                     # Streamlit app
   core/
+    config.py                 # App config (system prompt, token limits, etc.)
     MODEL_CONFIG.py           # Model definitions / LLM factory
     llm_handler.py            # LangChain chains and streaming
     conversation.py           # Create/load/delete conversations, title generation
