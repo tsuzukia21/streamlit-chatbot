@@ -2892,13 +2892,13 @@ files = [
 
 [[package]]
 name = "st-chat-input-multimodal"
-version = "1.0.5"
+version = "1.0.6"
 description = "Streamlit multimodal chat input component with text, image, and voice support"
 optional = false
 python-versions = ">=3.9"
 files = [
-    {file = "st_chat_input_multimodal-1.0.5-py3-none-any.whl", hash = "sha256:0fe83666e45f86d9db48f05fad1f52bdfda8ce2ab41cecdfc634ecf8ddc849f4"},
-    {file = "st_chat_input_multimodal-1.0.5.tar.gz", hash = "sha256:287ebb49cf108f0aef097a07cca54558c453a69fcab69ee4c12f67217beba37b"},
+    {file = "st_chat_input_multimodal-1.0.6-py3-none-any.whl", hash = "sha256:4bcd6065df87cab6960f534da43ff83d156926ab3b0191d59443ee71024b99ad"},
+    {file = "st_chat_input_multimodal-1.0.6.tar.gz", hash = "sha256:ac655f12383d4c81d4027f0edff6974a45bff35820c34d37ee2547a19120794a"},
 ]
 
 [package.dependencies]
@@ -3505,4 +3505,4 @@ cffi = ["cffi (>=1.17,<2.0)", "cffi (>=2.0.0b)"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "440432d7cbab7d4427ab0131ba6615832f66c55d59bc2c514de96276b98d1419"
+content-hash = "6c10b373f72fd7d627783d81f64ffcf6a4d4319b10e546fe866f2dcf2e1d956a"
