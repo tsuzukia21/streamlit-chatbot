@@ -1,5 +1,4 @@
-import datetime
-from datetime import timezone, timedelta
+from datetime import datetime, timezone, timedelta
 
 # アプリケーション設定
 
