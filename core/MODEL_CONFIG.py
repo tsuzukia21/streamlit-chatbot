@@ -29,12 +29,12 @@ MODEL_CONFIG = {
             output_version="v1"
         )
     },
-    "gpt-5.1": {
+    "gpt-5.2": {
         "provider": "openai",
-        "display_name": "gpt-5.1",
+        "display_name": "gpt-5.2",
         "index": 2,
         "llm_factory": lambda temp: ChatOpenAI(
-            model="gpt-5.1",
+            model="gpt-5.2",
             temperature=1.0,
             max_tokens=16384,
             reasoning={"effort": "medium","summary": "auto"}

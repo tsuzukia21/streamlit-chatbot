@@ -72,4 +72,4 @@ MESSAGE_LIMIT = 30
 
 # その他のデフォルト設定
 DEFAULT_TEMPERATURE = 1.0
-DEFAULT_MODEL = "claude-opus-4.5"
+DEFAULT_MODEL = "gpt-5.2"
