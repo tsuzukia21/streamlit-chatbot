@@ -182,7 +182,8 @@ user_input = multimodal_chat_input(
     enable_voice_input=True,
     voice_recognition_method="openai_whisper",
     voice_language="ja-JP",
-    key="chat_input"
+    key="chat_input",
+    disabled=not st.session_state.done
 )
 
 ui.show_chat_history(messages=st.session_state.chat_history,edit=True, error_message=st.session_state.error_message, show_copy_button=True)
@@ -324,4 +325,3 @@ if st.session_state.save:
         st.session_state.save = False
         st.session_state.stop = False
         st.rerun()
-
