@@ -4,12 +4,12 @@
 マルチモーダル入力（テキスト/画像/音声）に対応した Streamlit 製チャットボットです。会話履歴は Firestore、画像は Cloud Storage に永続化します。モデル切替（Anthropic, Google, OpenAI）や思考可視化（thinking/chain-of-thoughtの表示）に対応しています。
 
 ### 主な機能
-- **モデル切替**: Claude Sonnet 4.5 / Gemini 2.5 Pro / GPT‑5（LangChain ラッパー）
+- **モデル切替**: Claude Opus 4.5 / Gemini 3.0 Pro / GPT‑5.1（LangChain ラッパー）
 - **ツール付与**: 各モデルにネット検索ツール付与。最新の話題にも対応
 - **マルチモーダル入力**: 画像アップロード、音声認識（Whisper）
 - **会話管理**: 新規作成、タイトル自動生成、編集（過去メッセージから再分岐）
 - **永続化**: Firestore（テキスト）、Cloud Storage（画像）
-- **思考可視化**: reasoning/thinking 表示（対応モデルのみ）。GPT-5は組織認証しないと推論モデルのストリーミング不可なので非推論モデルを使用
+- **思考可視化**: reasoning/thinking 表示
 - **認証**: `st.login()` を用いた Google ログイン（`secrets.toml` を Secret Manager でマウント）＋ `allowed_emails` によるメールホワイトリスト（任意）
 
 ---
@@ -20,6 +20,7 @@
 streamlit-chatbot/
   main.py                     # Streamlit アプリ本体
   core/
+    config.py                 # アプリ設定（システムプロンプト、トークン制限等）
     MODEL_CONFIG.py           # モデル定義/LLMファクトリ
     llm_handler.py            # LangChain チェーン構築とストリーミング
     conversation.py           # 会話の新規/読込/削除、タイトル生成
