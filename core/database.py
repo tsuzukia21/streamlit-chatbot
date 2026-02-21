@@ -237,42 +237,66 @@ def get_conversation(conversation_id: str) -> Optional[Dict[str, Any]]:
 
 def update_conversation_timestamp(conversation_id: str) -> None:
     """会話の更新日時を現在時刻に更新"""
-    db = get_db()
-    
-    doc_ref = db.collection('conversations').document(conversation_id)
-    doc_ref.update({
-        'updated_at': firestore.SERVER_TIMESTAMP
-    })
+    table = get_db()
+
+    table.update_item(
+        Key={
+            'pk': f'CONV#{conversation_id}',
+            'sk': 'METADATA',
+        },
+        UpdateExpression='SET updated_at = :updated_at',
+        ExpressionAttributeValues={
+            ':updated_at': get_timestamp(),
+        },
+    )
 
 def update_conversation_title(conversation_id: str, title: str) -> None:
     """会話のタイトルを更新"""
-    db = get_db()
-    
-    doc_ref = db.collection('conversations').document(conversation_id)
-    doc_ref.update({
-        'title': title,
-        'updated_at': firestore.SERVER_TIMESTAMP
-    })
+    table = get_db()
+
+    table.update_item(
+        Key={
+            'pk': f'CONV#{conversation_id}',
+            'sk': 'METADATA',
+        },
+        UpdateExpression='SET title = :title, updated_at = :updated_at',
+        ExpressionAttributeValues={
+            ':title': title,
+            ':updated_at': get_timestamp(),
+        },
+    )
 
 def update_conversation_tokens(conversation_id: str, tokens: int) -> None:
     """会話のトークン数を更新（マルチターン全体のトークン数）"""
-    db = get_db()
-    
-    doc_ref = db.collection('conversations').document(conversation_id)
-    doc_ref.update({
-        'total_tokens': tokens,
-        'updated_at': firestore.SERVER_TIMESTAMP
-    })
+    table = get_db()
+
+    table.update_item(
+        Key={
+            'pk': f'CONV#{conversation_id}',
+            'sk': 'METADATA',
+        },
+        UpdateExpression='SET total_tokens = :tokens, updated_at = :updated_at',
+        ExpressionAttributeValues={
+            ':tokens': tokens,
+            ':updated_at': get_timestamp(),
+        },
+    )
 
 def get_conversation_tokens(conversation_id: str) -> int:
     """会話の総トークン数を取得（マルチターン全体のトークン数）"""
-    db = get_db()
-    
-    doc_ref = db.collection('conversations').document(conversation_id)
-    doc = doc_ref.get()
-    
-    if doc.exists:
-        return doc.to_dict().get('total_tokens', 0)
+    table = get_db()
+
+    response = table.get_item(
+        Key={
+            'pk': f'CONV#{conversation_id}',
+            'sk': 'METADATA',
+        },
+        ProjectionExpression='total_tokens',
+    )
+
+    item = response.get('Item')
+    if item:
+        return int(item.get('total_tokens', 0))
     return 0
 
 def delete_conversation(conversation_id: str) -> None:
