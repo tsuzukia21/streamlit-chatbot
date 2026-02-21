@@ -57,9 +57,9 @@
 - [x] T014 [US1] `delete_conversation(conversation_id)` を is_deleted=True に設定する DynamoDB `update_item` で実装 (core/database.py)
 - [x] T015 [US1] `save_message(conversation_id, role, content, reasoning)` を DynamoDB `put_item` で実装（pk=CONV#<id>, sk=<timestamp>#<msgId>） (core/database.py)
 - [x] T016 [US1] `get_messages(conversation_id)` を DynamoDB `query` で実装（pk=CONV#<id>, sk > METADATA） (core/database.py)
-- [ ] T017 [P] [US1] `update_message_content(conversation_id, message_id, content)` を DynamoDB `update_item` で実装 (core/database.py)
-- [ ] T018 [US1] `get_last_reasoning(conversation_id)` を DynamoDB `query` で実装（ScanIndexForward=False、Limit=1、role=assistant フィルタ） (core/database.py)
-- [ ] T019 [US1] `delete_messages_from_index(conversation_id, message_index)` をメッセージをクエリしてから指定インデックス以降を一括削除で実装 (core/database.py)
+- [x] T017 [P] [US1] `update_message_content(conversation_id, message_id, content)` を DynamoDB `update_item` で実装 (core/database.py)
+- [x] T018 [US1] `get_last_reasoning(conversation_id)` を DynamoDB `query` で実装（ScanIndexForward=False、Limit=1、role=assistant フィルタ） (core/database.py)
+- [x] T019 [US1] `delete_messages_from_index(conversation_id, message_index)` をメッセージをクエリしてから指定インデックス以降を一括削除で実装 (core/database.py)
 
 **チェックポイント**: 会話のCRUD操作がDynamoDBで完全動作。メッセージの保存・取得・削除が正常動作。
 

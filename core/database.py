@@ -353,15 +353,28 @@ def save_message(conversation_id: str, role: str, content: Any,
 
 def update_message_content(conversation_id: str, message_id: str, content: Any) -> None:
     """メッセージの内容を更新（画像保存後にパスを更新する用）"""
-    db = get_db()
-    
+    table = get_db()
+
+    # message_id から sk を特定するためにクエリ
+    response = table.query(
+        KeyConditionExpression=Key('pk').eq(f'CONV#{conversation_id}'),
+        FilterExpression=Attr('message_id').eq(message_id),
+    )
+    items = response.get('Items', [])
+    if not items:
+        return
+
+    item = items[0]
     content_json = json.dumps(content, ensure_ascii=False)
-    
-    doc_ref = db.collection('conversations').document(conversation_id)\
-                .collection('messages').document(message_id)
-    doc_ref.update({
-        'content': content_json
-    })
+
+    table.update_item(
+        Key={
+            'pk': item['pk'],
+            'sk': item['sk'],
+        },
+        UpdateExpression='SET content = :content',
+        ExpressionAttributeValues={':content': content_json},
+    )
 
 def save_message_with_images(conversation_id: str, role: str, content: Any,
                               reasoning: str = "") -> str:
@@ -463,19 +476,19 @@ def get_messages(conversation_id: str) -> List[Tuple[str, Any]]:
 
 def get_last_reasoning(conversation_id: str) -> str:
     """最後のアシスタントメッセージの推論過程を取得"""
-    db = get_db()
-    
-    messages_ref = db.collection('conversations').document(conversation_id).collection('messages')
-    query = messages_ref.where(filter=FieldFilter('role', '==', 'assistant'))\
-                        .order_by('created_at', direction=firestore.Query.DESCENDING)\
-                        .limit(1)
-    
-    docs = query.stream()
-    
-    for doc in docs:
-        data = doc.to_dict()
-        return data.get('reasoning', '')
-    
+    table = get_db()
+
+    # entity_type=message かつ role=assistant でフィルタし、降順（最新が先頭）で取得
+    response = table.query(
+        KeyConditionExpression=Key('pk').eq(f'CONV#{conversation_id}'),
+        FilterExpression=Attr('entity_type').eq('message') & Attr('role').eq('assistant'),
+        ScanIndexForward=False,
+    )
+
+    items = response.get('Items', [])
+    if items:
+        return items[0].get('reasoning', '')
+
     return ""
 
 def delete_message_images(conversation_id: str, message_id: str) -> None:
@@ -502,34 +515,36 @@ def delete_message_images(conversation_id: str, message_id: str) -> None:
 
 def delete_messages_from_index(conversation_id: str, message_index: int) -> None:
     """
-    指定したインデックス以降のメッセージをFirestoreから削除
-    
+    指定したインデックス以降のメッセージをDynamoDBから削除
+
     Args:
         conversation_id: 会話ID
         message_index: 削除開始インデックス（このインデックス以降を削除）
     """
-    db = get_db()
-    
-    # メッセージを取得（作成日時順）
-    messages_ref = db.collection('conversations').document(conversation_id).collection('messages')
-    query = messages_ref.order_by('created_at', direction=firestore.Query.ASCENDING)
-    
-    docs = list(query.stream())
-    
-    # インデックスが範囲内かチェック
-    if message_index < len(docs):
-        # 削除対象のドキュメント
-        docs_to_delete = docs[message_index:]
-        
-        # メッセージと関連画像を削除
-        for doc in docs_to_delete:
-            # 関連する画像を削除
-            delete_message_images(conversation_id, doc.id)
-            # メッセージを削除
-            doc.reference.delete()
-        
-        # updated_atを更新
-        update_conversation_timestamp(conversation_id)
+    table = get_db()
+
+    # メッセージを時系列順で取得
+    response = table.query(
+        KeyConditionExpression=Key('pk').eq(f'CONV#{conversation_id}'),
+        FilterExpression=Attr('entity_type').eq('message'),
+        ScanIndexForward=True,
+    )
+    items = response.get('Items', [])
+
+    if message_index >= len(items):
+        return
+
+    items_to_delete = items[message_index:]
+
+    # batch_writer で一括削除（S3画像削除は T025 で追加予定）
+    with table.batch_writer() as batch:
+        for item in items_to_delete:
+            batch.delete_item(Key={
+                'pk': item['pk'],
+                'sk': item['sk'],
+            })
+
+    update_conversation_timestamp(conversation_id)
 
 # データベース初期化（モジュールインポート時）
 init_db()
