@@ -22,7 +22,6 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-poetry.lock
 
 # Virtual Environment
 venv/

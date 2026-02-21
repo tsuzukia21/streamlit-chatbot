@@ -47,9 +47,9 @@
 
 ### ユーザーストーリー 1 の実装
 
-- [ ] T007 [US1] `create_conversation(user_id, title)` を DynamoDB `put_item` で実装（pk=CONV#<id>, sk=METADATA） (core/database.py)
-- [ ] T008 [US1] `get_conversations(user_id)` を GSI `UserConversationsIndex` クエリで実装（is_deleted フィルタ、ScanIndexForward=False、Limit=10） (core/database.py)
-- [ ] T009 [US1] `get_conversation(conversation_id)` を DynamoDB `get_item` で実装 (core/database.py)
+- [x] T007 [US1] `create_conversation(user_id, title)` を DynamoDB `put_item` で実装（pk=CONV#<id>, sk=METADATA） (core/database.py)
+- [x] T008 [US1] `get_conversations(user_id)` を GSI `UserConversationsIndex` クエリで実装（is_deleted フィルタ、ScanIndexForward=False、Limit=10） (core/database.py)
+- [x] T009 [US1] `get_conversation(conversation_id)` を DynamoDB `get_item` で実装 (core/database.py)
 - [ ] T010 [P] [US1] `update_conversation_title(conversation_id, title)` を DynamoDB `update_item` で実装 (core/database.py)
 - [ ] T011 [P] [US1] `update_conversation_tokens(conversation_id, tokens)` を DynamoDB `update_item` で実装 (core/database.py)
 - [ ] T012 [P] [US1] `get_conversation_tokens(conversation_id)` を DynamoDB `get_item` で実装 (core/database.py)

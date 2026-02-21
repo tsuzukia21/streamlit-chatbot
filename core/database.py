@@ -10,6 +10,7 @@ import uuid
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 import boto3
+from boto3.dynamodb.conditions import Key, Attr
 import streamlit as st
 
 # DynamoDB と S3 クライアント
@@ -152,78 +153,87 @@ def load_image_file(blob_path: str) -> str:
 def create_conversation(user_id: str, title: str) -> str:
     """
     新しい会話を作成
-    
+
     Returns:
-        作成した会話のID（Firestoreの自動生成ID）
+        作成した会話のID
     """
-    db = get_db()
-    
-    doc_ref = db.collection('conversations').document()
-    doc_ref.set({
+    table = get_db()
+
+    conversation_id = _generate_id()
+    now = get_timestamp()
+
+    table.put_item(Item={
+        'pk': f'CONV#{conversation_id}',
+        'sk': 'METADATA',
+        'entity_type': 'conversation',
         'user_id': user_id,
         'title': title,
-        'created_at': firestore.SERVER_TIMESTAMP,
-        'updated_at': firestore.SERVER_TIMESTAMP,
+        'total_tokens': 0,
         'is_deleted': False,
-        'total_tokens': 0
+        'created_at': now,
+        'updated_at': now,
     })
-    
-    return doc_ref.id
+
+    return conversation_id
 
 def get_conversations(user_id: str) -> List[Dict[str, Any]]:
     """
     ユーザーの会話一覧を取得（論理削除されていないもののみ）
-    
+
     Returns:
         会話のリスト（新しい順、最大10件）
     """
-    db = get_db()
-    
-    conversations_ref = db.collection('conversations')
-    query = conversations_ref.where(filter=FieldFilter('user_id', '==', user_id))\
-                             .where(filter=FieldFilter('is_deleted', '==', False))\
-                             .order_by('updated_at', direction=firestore.Query.DESCENDING)\
-                             .limit(10)
-    
-    docs = query.stream()
-    
+    table = get_db()
+
+    response = table.query(
+        IndexName='UserConversationsIndex',
+        KeyConditionExpression=Key('user_id').eq(user_id),
+        FilterExpression=Attr('is_deleted').eq(False),
+        ScanIndexForward=False,
+        Limit=10,
+    )
+
     conversations = []
-    for doc in docs:
-        data = doc.to_dict()
-        data['id'] = doc.id
-        # Timestampをstringに変換
-        if data.get('created_at'):
-            data['created_at'] = data['created_at'].isoformat() if hasattr(data['created_at'], 'isoformat') else str(data['created_at'])
-        if data.get('updated_at'):
-            data['updated_at'] = data['updated_at'].isoformat() if hasattr(data['updated_at'], 'isoformat') else str(data['updated_at'])
-        conversations.append(data)
-    
+    for item in response.get('Items', []):
+        conversations.append({
+            'id': item['pk'].replace('CONV#', ''),
+            'user_id': item.get('user_id'),
+            'title': item.get('title', ''),
+            'total_tokens': item.get('total_tokens', 0),
+            'is_deleted': item.get('is_deleted', False),
+            'created_at': item.get('created_at'),
+            'updated_at': item.get('updated_at'),
+        })
+
     return conversations
 
 def get_conversation(conversation_id: str) -> Optional[Dict[str, Any]]:
     """
     特定の会話情報を取得
-    
+
     Returns:
         会話情報の辞書、存在しない場合はNone
     """
-    db = get_db()
-    
-    doc_ref = db.collection('conversations').document(conversation_id)
-    doc = doc_ref.get()
-    
-    if not doc.exists:
+    table = get_db()
+
+    response = table.get_item(Key={
+        'pk': f'CONV#{conversation_id}',
+        'sk': 'METADATA',
+    })
+
+    item = response.get('Item')
+    if not item:
         return None
-    
-    data = doc.to_dict()
-    data['id'] = doc.id
-    # Timestampをstringに変換
-    if data.get('created_at'):
-        data['created_at'] = data['created_at'].isoformat() if hasattr(data['created_at'], 'isoformat') else str(data['created_at'])
-    if data.get('updated_at'):
-        data['updated_at'] = data['updated_at'].isoformat() if hasattr(data['updated_at'], 'isoformat') else str(data['updated_at'])
-    
-    return data
+
+    return {
+        'id': conversation_id,
+        'user_id': item.get('user_id'),
+        'title': item.get('title', ''),
+        'total_tokens': item.get('total_tokens', 0),
+        'is_deleted': item.get('is_deleted', False),
+        'created_at': item.get('created_at'),
+        'updated_at': item.get('updated_at'),
+    }
 
 def update_conversation_timestamp(conversation_id: str) -> None:
     """会話の更新日時を現在時刻に更新"""
