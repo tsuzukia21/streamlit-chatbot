@@ -208,6 +208,69 @@
 
 ---
 
+### 3-3. GitHub Actions 用 OIDC 設定（GitHub Actions から ECR にプッシュするため）
+
+#### IDプロバイダーの追加
+
+1. IAM → 左メニュー「**IDプロバイダ**」→「**プロバイダを追加**」をクリック
+
+| 項目 | 値 |
+|------|-----|
+| プロバイダのタイプ | **OpenID Connect** |
+| プロバイダの URL | `https://token.actions.githubusercontent.com` |
+
+2. URLを入力したら「**サムプリントを取得**」ボタンをクリック（URL入力欄の右横に表示される）
+3. サムプリント取得後、「対象者」欄に `sts.amazonaws.com` を入力
+4. 「**プロバイダを追加**」をクリック
+
+#### GitHub Actions 用ロールの作成
+
+3. IAM → 「**ロールを作成**」をクリック
+
+- 信頼されたエンティティタイプ: **カスタム信頼ポリシー**
+- 以下のJSONを貼り付け（`YOUR_ACCOUNT_ID` と `YOUR_GITHUB_USERNAME/REPO_NAME` を置換）:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::YOUR_ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+        },
+        "StringLike": {
+          "token.actions.githubusercontent.com:sub": "repo:YOUR_GITHUB_USERNAME/REPO_NAME:*"
+        }
+      }
+    }
+  ]
+}
+```
+
+4. 「次へ」をクリック
+
+#### 許可ポリシーのアタッチ
+
+5. 検索ボックスに `AmazonEC2ContainerRegistryPowerUser` と入力してチェック ✅
+6. 「次へ」をクリック
+
+#### ロールの詳細
+
+| 項目 | 値 |
+|------|-----|
+| ロール名 | `GitHubActionsECRRole` |
+
+7. 「**ロールを作成**」をクリック
+8. 作成後、ロールの詳細画面で **ARN** をコピーしておく（GitHub Secrets に登録する）
+
+---
+
 ## 4. ECR リポジトリ作成
 
 1. AWSコンソール → **Elastic Container Registry (ECR)** を開く
@@ -223,18 +286,64 @@
 
 4. 残りはデフォルトのまま「**リポジトリを作成**」をクリック
 
-### Dockerイメージのビルド・プッシュ
+### GitHub Actions によるビルド・プッシュの自動化
 
-5. 作成したリポジトリをクリック →「**プッシュコマンドを表示**」をクリック
-6. 表示された4つのコマンドをローカル環境で順番に実行する
+ECR へのイメージプッシュは GitHub Actions で自動化する。
 
+#### GitHub リポジトリの Secrets 設定
+
+5. GitHub リポジトリ → Settings → Secrets and variables → Actions
+6. 以下の Repository secrets を追加:
+
+| Secret 名 | 値 |
+|------|-----|
+| `AWS_ROLE_ARN` | Step 3-3 で作成した `GitHubActionsECRRole` の ARN |
+| `AWS_ACCOUNT_ID` | AWSアカウントID（12桁） |
+
+#### ワークフローファイルの作成
+
+7. リポジトリに `.github/workflows/deploy.yml` を作成:
+
+```yaml
+name: Build and Deploy to ECR
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ap-northeast-1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push image to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: streamlit-chatbot
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 ```
-# 例（コンソールに表示される実際のコマンドをコピーして使うこと）
-1. aws ecr get-login-password ...  （ECRへのログイン）
-2. docker build -t streamlit-chatbot .  （イメージビルド）
-3. docker tag streamlit-chatbot:latest ...  （タグ付け）
-4. docker push ...  （プッシュ）
-```
+
+> **デプロイの流れ**: `main` ブランチに push → GitHub Actions が自動でビルド＆ECRにプッシュ → App Runner が自動デプロイ（デプロイトリガーを「自動」に設定している場合）
 
 ---
 
@@ -309,7 +418,7 @@
 ```
 Step 1: DynamoDB テーブル作成
 Step 2: S3 バケット作成
-Step 3: IAM ロール作成（ECRアクセスロール → インスタンスロール）
-Step 4: ECR リポジトリ作成 → Docker ビルド＆プッシュ（ローカル作業）
+Step 3: IAM ロール作成（ECRアクセスロール → インスタンスロール → GitHub Actions OIDC）
+Step 4: ECR リポジトリ作成 → GitHub Secrets 設定 → ワークフロー作成
 Step 5: App Runner サービス作成
 ```
