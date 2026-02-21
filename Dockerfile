@@ -26,4 +26,4 @@ ENV STREAMLIT_SERVER_HEADLESS=true
 ENV STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
 
 # アプリケーション起動
-CMD streamlit run main.py --server.port=$PORT --server.address=0.0.0.0
+CMD streamlit run main.py --server.port=$PORT --server.address=0.0.0.0 --server.enableCORS=false --server.enableXsrfProtection=false --server.enableWebsocketCompression=false

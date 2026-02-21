@@ -11,6 +11,7 @@
 3. [IAM ロール作成](#3-iam-ロール作成)
 4. [ECR リポジトリ作成](#4-ecr-リポジトリ作成)
 5. [App Runner サービス作成](#5-app-runner-サービス作成)
+6. [トラブルシューティング](#6-トラブルシューティング)
 
 ---
 
@@ -79,49 +80,7 @@
 
 ## 3. IAM ロール作成
 
-### 3-1. ECRアクセスロール（App Runner が ECR からイメージを取得するため）
-
-1. AWSコンソール → **IAM** を開く
-2. 左メニュー「ロール」→「**ロールを作成**」をクリック
-
-#### 信頼されたエンティティの選択
-
-- 信頼されたエンティティタイプ: **カスタム信頼ポリシー**
-- 以下のJSONを貼り付け:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "Service": "build.apprunner.amazonaws.com"
-      },
-      "Action": "sts:AssumeRole"
-    }
-  ]
-}
-```
-
-3. 「次へ」をクリック
-
-#### 許可ポリシーのアタッチ
-
-4. 検索ボックスに `AWSAppRunnerServicePolicyForECRAccess` と入力してチェック ✅
-5. 「次へ」をクリック
-
-#### ロールの詳細
-
-| 項目 | 値 |
-|------|-----|
-| ロール名 | `AppRunnerECRAccessRole` |
-
-6. 「**ロールを作成**」をクリック
-
----
-
-### 3-2. インスタンスロール（App Runner が DynamoDB・S3 にアクセスするため）
+### 3-1. インスタンスロール（App Runner が DynamoDB・S3 にアクセスするため）
 
 1. 引き続き IAM → 「**ロールを作成**」をクリック
 
@@ -208,7 +167,7 @@
 
 ---
 
-### 3-3. GitHub Actions 用 OIDC 設定（GitHub Actions から ECR にプッシュするため）
+### 3-2. GitHub Actions 用 OIDC 設定（GitHub Actions から ECR にプッシュするため）
 
 #### IDプロバイダーの追加
 
@@ -297,7 +256,7 @@ ECR へのイメージプッシュは GitHub Actions で自動化する。
 
 | Secret 名 | 値 |
 |------|-----|
-| `AWS_ROLE_ARN` | Step 3-3 で作成した `GitHubActionsECRRole` の ARN |
+| `AWS_ROLE_ARN` | Step 3-2 で作成した `GitHubActionsECRRole` の ARN |
 | `AWS_ACCOUNT_ID` | AWSアカウントID（12桁） |
 
 #### ワークフローファイルの作成
@@ -361,7 +320,7 @@ jobs:
 | プロバイダー | **Amazon ECR** |
 | コンテナイメージのURI | ECRリポジトリの `streamlit-chatbot:latest` を選択 |
 | デプロイトリガー | **自動** |
-| ECRアクセスロール | `AppRunnerECRAccessRole` |
+| ECRアクセスロール | 「**新しいサービスロールの作成**」を選択（自動で作成される） |
 
 4. 「次へ」をクリック
 
@@ -413,12 +372,45 @@ jobs:
 
 ---
 
+## 6. トラブルシューティング
+
+### WebSocket エラーで画面が表示されない
+
+App Runner 経由で Streamlit にアクセスした際、以下のようなエラーが発生する場合がある:
+
+```
+Client Error: WebSocket onerror
+WebSocket connection to 'wss://xxxx.ap-northeast-1.awsapprunner.com/_stcore/stream' failed
+```
+
+**原因**: App Runner のリバースプロキシと Streamlit の WebSocket 設定（CORS、XSRF保護、圧縮）が競合している。
+
+**対策**: `.streamlit/config.toml` を作成し、以下の設定を追加する:
+
+```toml
+[server]
+enableCORS = false
+enableXsrfProtection = false
+enableWebsocketCompression = false
+
+[browser]
+gatherUsageStats = false
+```
+
+また、`Dockerfile` の起動コマンドにも同じフラグを追加する:
+
+```dockerfile
+CMD streamlit run main.py --server.port=$PORT --server.address=0.0.0.0 --server.enableCORS=false --server.enableXsrfProtection=false --server.enableWebsocketCompression=false
+```
+
+---
+
 ## 作業順序まとめ
 
 ```
 Step 1: DynamoDB テーブル作成
 Step 2: S3 バケット作成
-Step 3: IAM ロール作成（ECRアクセスロール → インスタンスロール → GitHub Actions OIDC）
+Step 3: IAM ロール作成（インスタンスロール → GitHub Actions OIDC）
 Step 4: ECR リポジトリ作成 → GitHub Secrets 設定 → ワークフロー作成
 Step 5: App Runner サービス作成
 ```
