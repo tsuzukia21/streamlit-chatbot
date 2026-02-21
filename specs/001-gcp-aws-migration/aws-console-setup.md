@@ -344,6 +344,12 @@ jobs:
 | `ANTHROPIC_API_KEY` | `sk-ant-...` |
 | `GOOGLE_API_KEY` | `AIza...` |
 | `ALLOWED_EMAILS` | `your@example.com`（任意） |
+| `GOOGLE_OAUTH_CLIENT_ID` | Google Cloud Console で作成した OAuth 2.0 クライアント ID |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | 同クライアントシークレット |
+| `AUTH_REDIRECT_URI` | `https://xxxx.ap-northeast-1.awsapprunner.com/oauth2callback`（App Runner のデフォルトドメイン） |
+| `AUTH_COOKIE_SECRET` | 任意のランダム文字列（省略時は自動生成） |
+
+> **注意**: `AUTH_REDIRECT_URI` は App Runner デプロイ後に表示されるドメインを使う。また Google Cloud Console の OAuth クライアントの「承認済みのリダイレクト URI」にも同じ URL を追加すること。
 
 #### インスタンスの設定
 
