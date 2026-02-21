@@ -92,7 +92,7 @@
 
 ### ユーザーストーリー 3 の実装
 
-- [ ] T026 [US3] Dockerfile を更新: GCP固有の設定を削除し、PORT=8080 の互換性を確認 (Dockerfile)
+- [x] T026 [US3] Dockerfile を更新: GCP固有の設定を削除し、PORT=8080 の互換性を確認 (Dockerfile)
 - [ ] T027 [US3] 更新した依存関係（GCPパッケージなし）で Docker イメージが正常にビルドされることを確認
 
 **チェックポイント**: Dockerイメージがビルド可能で、App Runnerデプロイ準備完了。
@@ -107,8 +107,8 @@
 
 ### ユーザーストーリー 4 の実装
 
-- [ ] T028 [US4] main.py を更新: `st.secrets` の参照を `os.environ` に置換（OAuth設定: client_id, client_secret, cookie_secret、およびAPIキー） (main.py)
-- [ ] T029 [US4] main.py から GCP Secret Manager の参照・インポートを削除 (main.py)
+- [x] T028 [US4] main.py を更新: `st.secrets` の参照を `os.environ` に置換（OAuth設定: client_id, client_secret, cookie_secret、およびAPIキー） (main.py)
+- [x] T029 [US4] main.py から GCP Secret Manager の参照・インポートを削除 (main.py)
 
 **チェックポイント**: 認証とシークレット管理が環境変数ベースで動作。
 

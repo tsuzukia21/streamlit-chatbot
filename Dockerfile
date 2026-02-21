@@ -16,7 +16,7 @@ RUN poetry config virtualenvs.create false
 # 依存関係をインストール
 RUN poetry install --no-interaction --no-ansi --no-root
 
-# Cloud Runのポート（デフォルト8080）
+# App Runnerのポート（デフォルト8080）
 ENV PORT=8080
 
 # Streamlitの設定

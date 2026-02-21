@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 from core.MODEL_CONFIG import MODEL_CONFIG
 from core.config import DEFAULT_SYSTEM_PROMPT, TOKEN_LIMIT, MESSAGE_LIMIT, DEFAULT_TEMPERATURE, DEFAULT_MODEL
@@ -111,11 +112,9 @@ with st.sidebar:
             st.login()
         st.stop()  # ログインするまでここで停止
     else:
-        # 許可されたメールアドレスのホワイトリスト検証（secrets.toml の [auth].allowed_emails）
-        try:
-            allowed_emails = st.secrets.get("auth", {}).get("allowed_emails", [])
-        except Exception:
-            allowed_emails = []
+        # 許可されたメールアドレスのホワイトリスト検証（環境変数 ALLOWED_EMAILS: カンマ区切り）
+        allowed_emails_str = os.environ.get("ALLOWED_EMAILS", "")
+        allowed_emails = [e.strip() for e in allowed_emails_str.split(",") if e.strip()]
         user_email = getattr(st.user, "email", None)
         if allowed_emails and (user_email not in allowed_emails):
             st.error("アクセス権がありません")
