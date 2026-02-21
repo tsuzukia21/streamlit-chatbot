@@ -1,15 +1,15 @@
 ## Streamlit Chatbot (English)
 
-This is a Streamlit-based chatbot supporting multimodal inputs (text/images/audio). Conversation history is persisted to Firestore and images to Cloud Storage. You can switch among models (Anthropic, Google, OpenAI) and visualize reasoning/thinking when supported.
+This is a Streamlit-based chatbot supporting multimodal inputs (text/images/audio). Conversation history is persisted to DynamoDB and images to S3. You can switch among models (Anthropic, Google, OpenAI) and visualize reasoning/thinking when supported.
 
 ### Key Features
-- Model switching: Claude Sonnet 4.5 / Gemini 2.5 Pro / GPT‑5 (via LangChain wrapper)
+- Model switching: Claude Opus 4.5 / Gemini 3.0 Pro / GPT‑5.1 (via LangChain wrapper)
 - Tool augmentation: Web search tools attached to each model for up-to-date topics
 - Multimodal input: image upload and speech recognition (Whisper)
 - Conversation management: create new conversation, auto-generate titles, edit, branch from past messages
-- Persistence: Firestore (text), Cloud Storage (images)
+- Persistence: DynamoDB (text), S3 (images)
 - Reasoning visualization: show reasoning/thinking
-- Authentication: Google sign-in using `st.login()` (mount `secrets.toml` from Secret Manager in production) + optional email allowlist via `allowed_emails`
+- Authentication: Google sign-in using `st.login()` + optional email allowlist via `ALLOWED_EMAILS` env var
 
 ---
 
@@ -23,13 +23,11 @@ streamlit-chatbot/
     MODEL_CONFIG.py           # Model definitions / LLM factory
     llm_handler.py            # LangChain chains and streaming
     conversation.py           # Create/load/delete conversations, title generation
-    database.py               # Firestore / Cloud Storage persistence
+    database.py               # DynamoDB / S3 persistence
     ui_components.py          # Message UI, editing, reasoning collapsible, etc.
   requirements.txt            # pip dependencies
   pyproject.toml, poetry.lock # Poetry dependencies
-  Dockerfile                  # Container for Cloud Run
-  .streamlit/
-    secrets.toml              # Auth/settings (mounted from Secret Manager in prod)
+  Dockerfile                  # Container for App Runner
   README.md                   # Japanese README
   README_EN.md                # This file
 ```
@@ -37,8 +35,8 @@ streamlit-chatbot/
 ---
 
 ## Prerequisites
-- Python
-- GCP: Firestore (Native mode), Cloud Storage bucket
+- Python 3.11+
+- AWS: DynamoDB table, S3 bucket (ap-northeast-1 recommended)
 - API keys (as needed)
   - OpenAI: `OPENAI_API_KEY`
   - Anthropic: `ANTHROPIC_API_KEY`
@@ -57,25 +55,35 @@ pip install -r requirements.txt
 poetry install
 ```
 
-2) Create `.streamlit/secrets.toml` (for local run)
-```toml
-[auth]
-redirect_uri = "http://localhost:8501/oauth2callback"
-cookie_secret = "[strong random string]"
-client_id = "[Google OAuth Client ID]"
-client_secret = "[Google OAuth Client Secret]"
-server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
-allowed_emails = ["your-test-user@example.com"] # Optional allowlist. Checked for exact match
+2) Set up AWS resources
+```bash
+# Create DynamoDB table
+aws dynamodb create-table \
+  --table-name ChatbotData \
+  --attribute-definitions \
+    AttributeName=pk,AttributeType=S \
+    AttributeName=sk,AttributeType=S \
+    AttributeName=user_id,AttributeType=S \
+    AttributeName=updated_at,AttributeType=N \
+  --key-schema \
+    AttributeName=pk,KeyType=HASH \
+    AttributeName=sk,KeyType=RANGE \
+  --global-secondary-indexes '[{"IndexName":"UserConversationsIndex","KeySchema":[{"AttributeName":"user_id","KeyType":"HASH"},{"AttributeName":"updated_at","KeyType":"RANGE"}],"Projection":{"ProjectionType":"ALL"},"ProvisionedThroughput":{"ReadCapacityUnits":5,"WriteCapacityUnits":5}}]' \
+  --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5 \
+  --region ap-northeast-1
+
+# Create S3 bucket (private)
+aws s3 mb s3://streamlit-chatbot-dev-images --region ap-northeast-1
 ```
 
 3) Environment variables (as needed)
 ```bash
+export AWS_REGION=ap-northeast-1
+export DYNAMODB_TABLE_NAME=ChatbotData
+export S3_BUCKET_NAME=streamlit-chatbot-dev-images
 export OPENAI_API_KEY=...
 export ANTHROPIC_API_KEY=...
 export GOOGLE_API_KEY=...
-
-# Only when using a service account key locally
-export GOOGLE_APPLICATION_CREDENTIALS=/abs/path/to/service-account.json
 ```
 
 4) Run
@@ -84,97 +92,72 @@ streamlit run main.py
 ```
 
 ### Access Control (Optional Email Allowlist)
-- If you set `[auth].allowed_emails` in `secrets.toml`, the app will verify `st.user.email` after login and immediately block + log out users not listed (exact match).
-- If `allowed_emails` is missing or empty, this check is skipped (control relies solely on Google OAuth settings).
+- If you set `ALLOWED_EMAILS` env var (comma-separated), the app will verify `st.user.email` after login and immediately block + log out users not listed (exact match).
+- If `ALLOWED_EMAILS` is missing or empty, this check is skipped (control relies solely on Google OAuth settings).
 - Implementation location: right after the "logged-in" branch in the sidebar of `main.py`.
 
-Example (`secrets.toml`):
-```toml
-[auth]
-...
-allowed_emails = ["your-test-user@example.com", "another@example.com"]
+Example:
+```bash
+export ALLOWED_EMAILS="your-test-user@example.com,another@example.com"
 ```
 
 Notes:
-- Google auth with `st.login()`/`st.user`/`st.logout()` and `secrets.toml` is well explained in this article (Japanese): [Zenn: Streamlit Google Login](https://zenn.dev/datum_studio/articles/c964f9e38379f4)
+- Google auth with `st.login()`/`st.user`/`st.logout()` is well explained in this article (Japanese): [Zenn: Streamlit Google Login](https://zenn.dev/datum_studio/articles/c964f9e38379f4)
 - Browser permissions are required for image upload and speech recognition.
 
 ---
 
 ## Secrets and Env Vars (Production)
 
-In production (Cloud Run), do not commit `.streamlit/secrets.toml`. Instead, register the secret in Secret Manager and mount it as a file at `/app/.streamlit/secrets.toml` inside the container.
+In production (App Runner), manage all settings via **environment variables**. Configure them in the App Runner service settings or reference from AWS Secrets Manager.
 
-### Example Steps
-1) Register in Secret Manager
-```bash
-gcloud secrets create streamlit-secrets --replication-policy=automatic
-gcloud secrets versions add streamlit-secrets --data-file=.streamlit/secrets.toml
-```
-
-2) Mount as a file on Cloud Run
-- In Cloud Console > Cloud Run > Service > Edit > Security > Secrets, configure `streamlit-secrets` to be mounted as a file at `/app/.streamlit/secrets.toml`.
-- The app will then read `secrets.toml` from the same path as local.
-
-3) Additional environment variables (as needed)
-- Manage `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY` in Secret Manager and expose them as Cloud Run env vars
-- Setting up LangSmith is recommended
+Required environment variables:
+- `AWS_REGION`: AWS region (e.g., ap-northeast-1)
+- `DYNAMODB_TABLE_NAME`: DynamoDB table name
+- `S3_BUCKET_NAME`: S3 bucket name
+- `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`: AI model API keys
+- `ALLOWED_EMAILS`: Comma-separated allowed email addresses (optional)
 
 ---
 
-## GCP Setup
+## AWS Setup
 
-### 1. Project Preparation
-- Enable Firestore (Native mode) with the same region as Cloud Run/Storage
-- Create a Cloud Storage bucket
+### 1. Create DynamoDB Table
+See `quickstart.md`.
 
-### 2. Service Account and Roles
-Grant the Cloud Run runtime service account at least:
-- `roles/datastore.user` (Firestore)
-- `roles/storage.objectAdmin` (Cloud Storage)
-- Recommended: `roles/logging.logWriter`
+### 2. Create S3 Bucket
+See `quickstart.md`.
 
-### 3. Deploy to Cloud Run
-Example build and deploy:
-```bash
-# Build & push to Artifact Registry
-gcloud builds submit --tag REGION-docker.pkg.dev/PROJECT_ID/REPO/streamlit-chatbot:latest
+### 3. IAM Role
+Grant the App Runner instance role at least:
+- `dynamodb:GetItem`, `dynamodb:PutItem`, `dynamodb:UpdateItem`, `dynamodb:DeleteItem`, `dynamodb:Query` (DynamoDB)
+- `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`, `s3:ListBucket` (S3)
 
-# Deploy (configure secret file mount in console or via manifest)
-gcloud run deploy streamlit-chatbot \
-  --image REGION-docker.pkg.dev/PROJECT_ID/REPO/streamlit-chatbot:latest \
-  --platform managed \
-  --region REGION \
-  --service-account YOUR_SA@PROJECT_ID.iam.gserviceaccount.com \
-  --allow-unauthenticated \
-  --set-env-vars OPENAI_API_KEY=...,ANTHROPIC_API_KEY=...,GOOGLE_API_KEY=...
-```
-
-Notes:
-- If you do not want the service to be public, use `--no-allow-unauthenticated` and protect it with IAP or alternatives
-- If images are not displayed, check `GCS_BUCKET_NAME` configuration, bucket permissions, and CORS
+### 4. Deploy to App Runner
+See "Production Deploy (App Runner)" section in `quickstart.md`.
 
 ---
 
 ## Data Model (Persistence)
-- Firestore collections
-  - `conversations/{conversationId}`: `user_id`, `title`, `total_tokens`, `is_deleted`, `created_at`, `updated_at`
-  - `conversations/{conversationId}/messages/{messageId}`: `role`, `content(json)`, `reasoning`, `created_at`
-- Cloud Storage
+- DynamoDB
+  - pk=`CONV#<conversationId>`, sk=`METADATA`: `user_id`, `title`, `total_tokens`, `is_deleted`, `created_at`, `updated_at`
+  - pk=`CONV#<conversationId>`, sk=`<timestamp>#<messageId>`: `role`, `content(json)`, `reasoning`, `created_at`
+- S3
   - Saved as `images/conv{conversationId}_msg{messageId}_{index}.{ext}`
-  - Replace data URI with GCS path at write time; restore data URI at read time
+  - Replace data URI with S3 path at write time; restore data URI at read time
 
 ---
 
 ## Docker Run
-The Dockerfile uses Poetry to resolve dependencies and sets `PORT=8080` for Cloud Run.
+The Dockerfile uses Poetry to resolve dependencies and sets `PORT=8080` for App Runner.
 ```bash
 docker build -t streamlit-chatbot:local .
 docker run -p 8080:8080 \
+  -e AWS_REGION=ap-northeast-1 \
+  -e DYNAMODB_TABLE_NAME=ChatbotData \
+  -e S3_BUCKET_NAME=streamlit-chatbot-dev-images \
   -e OPENAI_API_KEY=... -e ANTHROPIC_API_KEY=... -e GOOGLE_API_KEY=... \
   streamlit-chatbot:local
 ```
 
 ---
-
-

@@ -118,9 +118,9 @@
 
 **目的**: GCP依存の完全除去確認とクリーンアップ
 
-- [ ] T030 コードベース全体で GCP インポート（firebase_admin, google.cloud）が完全に除去されていることを確認
-- [ ] T031 全ファイルから未使用の GCP 関連コード・コメント・設定を削除
-- [ ] T032 core/database.py のエラーメッセージを GCP 参照から AWS 参照に更新（例: "Firebase初期化エラー" → "AWS初期化エラー"、"GCS_BUCKET_NAME" → "S3_BUCKET_NAME"）
+- [x] T030 コードベース全体で GCP インポート（firebase_admin, google.cloud）が完全に除去されていることを確認
+- [x] T031 全ファイルから未使用の GCP 関連コード・コメント・設定を削除
+- [x] T032 core/database.py のエラーメッセージを GCP 参照から AWS 参照に更新（例: "Firebase初期化エラー" → "AWS初期化エラー"、"GCS_BUCKET_NAME" → "S3_BUCKET_NAME"）
 - [ ] T033 quickstart.md の検証を実行: ローカル開発環境のセットアップがエンドツーエンドで動作することを確認
 
 ---
