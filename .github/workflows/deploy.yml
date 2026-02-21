@@ -2,7 +2,7 @@ name: Build and Deploy to ECS
 
 on:
   push:
-    branches: [main]
+    branches: [001-gcp-aws-migration]
 
 permissions:
   id-token: write
