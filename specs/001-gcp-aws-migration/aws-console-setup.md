@@ -10,7 +10,7 @@
 2. [S3 バケット作成](#2-s3-バケット作成)
 3. [IAM ロール作成](#3-iam-ロール作成)
 4. [ECR リポジトリ作成](#4-ecr-リポジトリ作成)
-5. [App Runner サービス作成](#5-app-runner-サービス作成)
+5. [ECS Fargate + ALB でデプロイ](#5-ecs-fargate--alb-でデプロイ)
 6. [トラブルシューティング](#6-トラブルシューティング)
 
 ---
@@ -80,14 +80,14 @@
 
 ## 3. IAM ロール作成
 
-### 3-1. インスタンスロール（App Runner が DynamoDB・S3 にアクセスするため）
+### 3-1. ECS タスクロール（アプリが DynamoDB・S3 にアクセスするため）
 
-1. 引き続き IAM → 「**ロールを作成**」をクリック
+1. AWSコンソール → **IAM** → 左メニュー「ロール」→「**ロールを作成**」をクリック
 
 #### 信頼されたエンティティの選択
 
 - 信頼されたエンティティタイプ: **カスタム信頼ポリシー**
-- 以下のJSONを貼り付け（ECRアクセスロールとは**プリンシパルが異なる**ので注意）:
+- 以下のJSONを貼り付け:
 
 ```json
 {
@@ -96,7 +96,7 @@
     {
       "Effect": "Allow",
       "Principal": {
-        "Service": "tasks.apprunner.amazonaws.com"
+        "Service": "ecs-tasks.amazonaws.com"
       },
       "Action": "sts:AssumeRole"
     }
@@ -159,7 +159,7 @@
 
 | 項目 | 値 |
 |------|-----|
-| ロール名 | `AppRunnerInstanceRole` |
+| ロール名 | `ECSTaskRole` |
 
 8. 「**ロールを作成**」をクリック
 
@@ -167,7 +167,33 @@
 
 ---
 
-### 3-2. GitHub Actions 用 OIDC 設定（GitHub Actions から ECR にプッシュするため）
+### 3-2. ECS タスク実行ロール（ECS エージェントが ECR からイメージ取得・ログ書き込みするため）
+
+1. IAM → 「**ロールを作成**」をクリック
+
+#### 信頼されたエンティティの選択
+
+- 信頼されたエンティティタイプ: **AWSのサービス**
+- ユースケース: **Elastic Container Service** → **Elastic Container Service Task**
+
+2. 「次へ」をクリック
+
+#### 許可ポリシーのアタッチ
+
+3. 検索ボックスに `AmazonECSTaskExecutionRolePolicy` と入力してチェック ✅
+4. 「次へ」をクリック
+
+#### ロールの詳細
+
+| 項目 | 値 |
+|------|-----|
+| ロール名 | `ecsTaskExecutionRole` |
+
+5. 「**ロールを作成**」をクリック
+
+---
+
+### 3-3. GitHub Actions 用 OIDC 設定（GitHub Actions から ECR プッシュ＆ECS デプロイするため）
 
 #### IDプロバイダーの追加
 
@@ -184,7 +210,7 @@
 
 #### GitHub Actions 用ロールの作成
 
-3. IAM → 「**ロールを作成**」をクリック
+5. IAM → 「**ロールを作成**」をクリック
 
 - 信頼されたエンティティタイプ: **カスタム信頼ポリシー**
 - 以下のJSONを貼り付け（`YOUR_ACCOUNT_ID` と `YOUR_GITHUB_USERNAME/REPO_NAME` を置換）:
@@ -212,12 +238,12 @@
 }
 ```
 
-4. 「次へ」をクリック
+6. 「次へ」をクリック
 
 #### 許可ポリシーのアタッチ
 
-5. 検索ボックスに `AmazonEC2ContainerRegistryPowerUser` と入力してチェック ✅
-6. 「次へ」をクリック
+7. 検索ボックスに `AmazonEC2ContainerRegistryPowerUser` と入力してチェック ✅
+8. 「次へ」をクリック
 
 #### ロールの詳細
 
@@ -225,8 +251,31 @@
 |------|-----|
 | ロール名 | `GitHubActionsECRRole` |
 
-7. 「**ロールを作成**」をクリック
-8. 作成後、ロールの詳細画面で **ARN** をコピーしておく（GitHub Secrets に登録する）
+9. 「**ロールを作成**」をクリック
+10. 作成後、ロールの詳細画面で **ARN** をコピーしておく（GitHub Secrets に登録する）
+
+#### ECS デプロイ権限の追加
+
+11. 作成した `GitHubActionsECRRole` の詳細画面 →「許可」タブ →「**許可を追加**」→「**インラインポリシーを作成**」
+12. 「**JSON**」タブを選択して以下を貼り付け（`YOUR_ACCOUNT_ID` を置換）:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecs:UpdateService",
+        "ecs:DescribeServices"
+      ],
+      "Resource": "arn:aws:ecs:ap-northeast-1:YOUR_ACCOUNT_ID:service/streamlit-chatbot-cluster/streamlit-chatbot-service"
+    }
+  ]
+}
+```
+
+13. ポリシー名 `ECSDeployPolicy` → 「**ポリシーの作成**」
 
 ---
 
@@ -245,9 +294,9 @@
 
 4. 残りはデフォルトのまま「**リポジトリを作成**」をクリック
 
-### GitHub Actions によるビルド・プッシュの自動化
+### GitHub Actions によるビルド・デプロイの自動化
 
-ECR へのイメージプッシュは GitHub Actions で自動化する。
+ECR へのイメージプッシュと ECS へのデプロイは GitHub Actions で自動化する。
 
 #### GitHub リポジトリの Secrets 設定
 
@@ -256,15 +305,14 @@ ECR へのイメージプッシュは GitHub Actions で自動化する。
 
 | Secret 名 | 値 |
 |------|-----|
-| `AWS_ROLE_ARN` | Step 3-2 で作成した `GitHubActionsECRRole` の ARN |
-| `AWS_ACCOUNT_ID` | AWSアカウントID（12桁） |
+| `AWS_ROLE_ARN` | Step 3-3 で作成した `GitHubActionsECRRole` の ARN |
 
 #### ワークフローファイルの作成
 
 7. リポジトリに `.github/workflows/deploy.yml` を作成:
 
 ```yaml
-name: Build and Deploy to ECR
+name: Build and Deploy to ECS
 
 on:
   push:
@@ -296,44 +344,171 @@ jobs:
           ECR_REPOSITORY: streamlit-chatbot
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      - name: Deploy to ECS
+        run: |
+          aws ecs update-service \
+            --cluster streamlit-chatbot-cluster \
+            --service streamlit-chatbot-service \
+            --force-new-deployment
 ```
 
-> **デプロイの流れ**: `main` ブランチに push → GitHub Actions が自動でビルド＆ECRにプッシュ → App Runner が自動デプロイ（デプロイトリガーを「自動」に設定している場合）
+> **デプロイの流れ**: `main` ブランチに push → GitHub Actions が自動でビルド＆ECRにプッシュ → ECS サービスを強制更新 → Fargate が新しいイメージで再デプロイ
 
 ---
 
-## 5. App Runner サービス作成
+## 5. ECS Fargate + ALB でデプロイ
 
-1. AWSコンソール → **App Runner** を開く
-2. リージョンが **東京** になっていることを確認
-3. 「**サービスの作成**」をクリック
+> **なぜ App Runner ではなく ECS Fargate を使うのか**: App Runner は WebSocket をサポートしていない。Streamlit は WebSocket 必須のため、WebSocket をネイティブサポートする ALB + ECS Fargate を使用する。
 
-### ソース設定
+### 5-1. セキュリティグループの作成
 
-| 項目 | 値 |
-|------|-----|
-| ソース | **コンテナレジストリ** |
-| プロバイダー | **Amazon ECR** |
-| コンテナイメージのURI | ECRリポジトリの `streamlit-chatbot:latest` を選択 |
-| デプロイトリガー | **自動** |
-| ECRアクセスロール | 「**新しいサービスロールの作成**」を選択（自動で作成される） |
+AWSコンソール → **VPC** → 左メニュー「セキュリティグループ」
 
-4. 「次へ」をクリック
+#### ALB 用セキュリティグループ
 
-### サービスの設定
+1. 「**セキュリティグループを作成**」をクリック
 
 | 項目 | 値 |
 |------|-----|
-| サービス名 | `streamlit-chatbot` |
+| セキュリティグループ名 | `streamlit-alb-sg` |
+| 説明 | `ALB for Streamlit chatbot` |
+| VPC | デフォルト VPC |
+
+2. インバウンドルール:
+
+| タイプ | ポート | ソース |
+|--------|--------|--------|
+| HTTP | 80 | `0.0.0.0/0` |
+| HTTPS | 443 | `0.0.0.0/0` |
+
+3. 「**セキュリティグループを作成**」をクリック
+
+#### ECS タスク用セキュリティグループ
+
+4. 「**セキュリティグループを作成**」をクリック
+
+| 項目 | 値 |
+|------|-----|
+| セキュリティグループ名 | `streamlit-ecs-sg` |
+| 説明 | `ECS tasks for Streamlit chatbot` |
+| VPC | デフォルト VPC |
+
+5. インバウンドルール:
+
+| タイプ | ポート | ソース |
+|--------|--------|--------|
+| カスタム TCP | 8080 | `streamlit-alb-sg`（ALB のセキュリティグループを選択） |
+
+6. 「**セキュリティグループを作成**」をクリック
+
+---
+
+### 5-2. ターゲットグループの作成
+
+AWSコンソール → **EC2** → 左メニュー「ターゲットグループ」
+
+1. 「**ターゲットグループの作成**」をクリック
+
+| 項目 | 値 |
+|------|-----|
+| ターゲットタイプ | **IP アドレス** |
+| ターゲットグループ名 | `streamlit-chatbot-tg` |
+| プロトコル | HTTP |
 | ポート | `8080` |
+| VPC | デフォルト VPC |
+| プロトコルバージョン | HTTP1 |
+
+2. ヘルスチェック設定:
+
+| 項目 | 値 |
+|------|-----|
+| ヘルスチェックパス | `/_stcore/health` |
+| 正常しきい値 | `2` |
+| 異常しきい値 | `3` |
+| タイムアウト | `5` 秒 |
+| インターバル | `30` 秒 |
+| 成功コード | `200` |
+
+3. ターゲットの登録は**スキップ**（ECS が自動で登録する）
+4. 「**ターゲットグループの作成**」をクリック
+
+---
+
+### 5-3. ALB（Application Load Balancer）の作成
+
+AWSコンソール → **EC2** → 左メニュー「ロードバランサー」
+
+1. 「**ロードバランサーの作成**」→ **Application Load Balancer** を選択
+
+| 項目 | 値 |
+|------|-----|
+| ロードバランサー名 | `streamlit-chatbot-alb` |
+| スキーム | **インターネット向け** |
+| IPアドレスタイプ | IPv4 |
+
+2. ネットワークマッピング: デフォルト VPC を選択し、**2つ以上のAZ**（例: ap-northeast-1a, ap-northeast-1c）のサブネットを選択
+
+3. セキュリティグループ: `streamlit-alb-sg` を選択
+
+4. リスナー:
+
+| プロトコル | ポート | デフォルトアクション |
+|----------|------|----------------|
+| HTTP | 80 | `streamlit-chatbot-tg` に転送 |
+
+5. 「**ロードバランサーの作成**」をクリック
+
+> **WebSocket について**: ALB は HTTP/1.1 Upgrade リクエストを透過的に転送するため、WebSocket は追加設定なしで動作する。
+
+---
+
+### 5-4. ECS クラスターの作成
+
+AWSコンソール → **ECS** → 左メニュー「クラスター」
+
+1. 「**クラスターの作成**」をクリック
+
+| 項目 | 値 |
+|------|-----|
+| クラスター名 | `streamlit-chatbot-cluster` |
+| インフラストラクチャ | **AWS Fargate（サーバーレス）** のみ |
+
+2. 「**作成**」をクリック
+
+---
+
+### 5-5. タスク定義の作成
+
+AWSコンソール → **ECS** → 左メニュー「タスク定義」
+
+1. 「**新しいタスク定義の作成**」をクリック
+
+#### タスク定義の設定
+
+| 項目 | 値 |
+|------|-----|
+| タスク定義ファミリー | `streamlit-chatbot` |
+| 起動タイプ | AWS Fargate |
+| OS/アーキテクチャ | Linux/X86_64 |
+| タスクサイズ - CPU | `0.5 vCPU` |
+| タスクサイズ - メモリ | `1 GB` |
+| タスクロール | `ECSTaskRole` |
+| タスク実行ロール | `ecsTaskExecutionRole` |
+
+#### コンテナの定義
+
+| 項目 | 値 |
+|------|-----|
+| コンテナ名 | `streamlit-chatbot` |
+| イメージ URI | `YOUR_ACCOUNT_ID.dkr.ecr.ap-northeast-1.amazonaws.com/streamlit-chatbot:latest` |
+| 必須 | はい |
+| ポートマッピング | コンテナポート: `8080`、プロトコル: TCP |
 
 #### 環境変数の追加
-
-「環境変数」セクションで以下を1つずつ追加:
 
 | キー | 値 |
 |------|-----|
@@ -344,70 +519,100 @@ jobs:
 | `ANTHROPIC_API_KEY` | `sk-ant-...` |
 | `GOOGLE_API_KEY` | `AIza...` |
 | `ALLOWED_EMAILS` | `your@example.com`（任意） |
-| `GOOGLE_OAUTH_CLIENT_ID` | Google Cloud Console で作成した OAuth 2.0 クライアント ID |
+| `GOOGLE_OAUTH_CLIENT_ID` | Google Cloud Console の OAuth クライアント ID |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | 同クライアントシークレット |
-| `AUTH_REDIRECT_URI` | `https://xxxx.ap-northeast-1.awsapprunner.com/oauth2callback`（App Runner のデフォルトドメイン） |
+| `AUTH_REDIRECT_URI` | `http://ALB_DNS_NAME/oauth2callback`（後で更新する） |
 | `AUTH_COOKIE_SECRET` | 任意のランダム文字列（省略時は自動生成） |
 
-> **注意**: `AUTH_REDIRECT_URI` は App Runner デプロイ後に表示されるドメインを使う。また Google Cloud Console の OAuth クライアントの「承認済みのリダイレクト URI」にも同じ URL を追加すること。
+#### ログの設定
 
-#### インスタンスの設定
+- ログ収集: デフォルトのまま（awslogs、CloudWatch へ自動送信）
+
+2. 「**作成**」をクリック
+
+---
+
+### 5-6. ECS サービスの作成
+
+AWSコンソール → **ECS** → クラスター `streamlit-chatbot-cluster` → 「サービス」タブ
+
+1. 「**作成**」をクリック
+
+#### サービスの設定
 
 | 項目 | 値 |
 |------|-----|
-| vCPU | `1 vCPU` |
-| メモリ | `2 GB` |
-| インスタンスロール | `AppRunnerInstanceRole` |
+| 起動タイプ | **Fargate** |
+| タスク定義ファミリー | `streamlit-chatbot` |
+| リビジョン | LATEST |
+| サービス名 | `streamlit-chatbot-service` |
+| タスクの必要数 | `1` |
 
-5. 「次へ」をクリック
-
-### ヘルスチェックの設定
+#### ネットワーキング
 
 | 項目 | 値 |
 |------|-----|
-| プロトコル | **HTTP** |
-| パス | `/_stcore/health` |
-| インターバル | `10` 秒 |
-| タイムアウト | `5` 秒 |
-| 正常しきい値 | `1` |
-| 異常しきい値 | `3` |
+| VPC | デフォルト VPC |
+| サブネット | ALB と同じサブネット |
+| セキュリティグループ | `streamlit-ecs-sg` |
+| パブリック IP | **オン**（デフォルト VPC で ECR からイメージを取得するために必要） |
 
-6. 「次へ」→ 内容を確認 →「**作成してデプロイ**」をクリック
+#### ロードバランシング
 
-デプロイ完了後（数分）、表示されるデフォルトドメイン（`https://xxxx.ap-northeast-1.awsapprunner.com`）にアクセスして動作確認。
+| 項目 | 値 |
+|------|-----|
+| ロードバランサーの種類 | **Application Load Balancer** |
+| ロードバランサー | `streamlit-chatbot-alb` |
+| ロードバランス用コンテナ | `streamlit-chatbot:8080` |
+| ターゲットグループ | 既存: `streamlit-chatbot-tg` |
+
+2. 「**作成**」をクリック
+
+---
+
+### 5-7. AUTH_REDIRECT_URI の更新
+
+1. EC2 コンソール → ロードバランサー → `streamlit-chatbot-alb` の DNS 名をコピー（例: `streamlit-chatbot-alb-123456789.ap-northeast-1.elb.amazonaws.com`）
+2. ECS → タスク定義 → `streamlit-chatbot` → 「**新しいリビジョンの作成**」
+3. 環境変数 `AUTH_REDIRECT_URI` を `http://ALB_DNS_NAME/oauth2callback` に更新
+4. 新しいリビジョンを作成
+5. ECS → クラスター → サービス → 「**サービスを更新**」→ 新しいリビジョンを選択 →「**更新**」
+6. **Google Cloud Console** の OAuth クライアント設定で「承認済みのリダイレクト URI」にも同じ URL を追加
+
+---
+
+### 5-8. 動作確認
+
+デプロイ完了後（数分）、ALB の DNS 名（`http://ALB_DNS_NAME`）にブラウザでアクセスして動作確認。
+
+確認項目:
+- Streamlit の画面が表示されること（WebSocket エラーが出ないこと）
+- Google OAuth ログインが動作すること
+- チャットの送受信ができること（DynamoDB）
+- 画像アップロードができること（S3）
 
 ---
 
 ## 6. トラブルシューティング
 
-### WebSocket エラーで画面が表示されない
+### ECS タスクが起動しない
 
-App Runner 経由で Streamlit にアクセスした際、以下のようなエラーが発生する場合がある:
+1. ECS → クラスター → サービス →「タスク」タブで停止したタスクを確認
+2. タスクをクリック →「ログ」タブで CloudWatch ログを確認
+3. よくある原因:
+   - ECR イメージが見つからない → イメージ URI を確認
+   - タスク実行ロールの権限不足 → `ecsTaskExecutionRole` に `AmazonECSTaskExecutionRolePolicy` がアタッチされているか確認
+   - ヘルスチェック失敗 → `/_stcore/health` が 200 を返しているか確認
 
-```
-Client Error: WebSocket onerror
-WebSocket connection to 'wss://xxxx.ap-northeast-1.awsapprunner.com/_stcore/stream' failed
-```
+### ヘルスチェックが失敗する
 
-**原因**: App Runner のリバースプロキシと Streamlit の WebSocket 設定（CORS、XSRF保護、圧縮）が競合している。
+- ターゲットグループのヘルスチェックパスが `/_stcore/health` になっているか確認
+- ポートが `8080` になっているか確認
+- セキュリティグループ `streamlit-ecs-sg` で ALB からの 8080 ポートが許可されているか確認
 
-**対策**: `.streamlit/config.toml` を作成し、以下の設定を追加する:
+### ログの確認方法
 
-```toml
-[server]
-enableCORS = false
-enableXsrfProtection = false
-enableWebsocketCompression = false
-
-[browser]
-gatherUsageStats = false
-```
-
-また、`Dockerfile` の起動コマンドにも同じフラグを追加する:
-
-```dockerfile
-CMD streamlit run main.py --server.port=$PORT --server.address=0.0.0.0 --server.enableCORS=false --server.enableXsrfProtection=false --server.enableWebsocketCompression=false
-```
+- **CloudWatch** コンソール → ロググループ → `/ecs/streamlit-chatbot` でアプリケーションログを確認
 
 ---
 
@@ -416,7 +621,15 @@ CMD streamlit run main.py --server.port=$PORT --server.address=0.0.0.0 --server.
 ```
 Step 1: DynamoDB テーブル作成
 Step 2: S3 バケット作成
-Step 3: IAM ロール作成（インスタンスロール → GitHub Actions OIDC）
+Step 3: IAM ロール作成（ECS タスクロール → タスク実行ロール → GitHub Actions OIDC）
 Step 4: ECR リポジトリ作成 → GitHub Secrets 設定 → ワークフロー作成
-Step 5: App Runner サービス作成
+Step 5: ECS Fargate + ALB でデプロイ
+  5-1: セキュリティグループ作成
+  5-2: ターゲットグループ作成
+  5-3: ALB 作成
+  5-4: ECS クラスター作成
+  5-5: タスク定義作成
+  5-6: ECS サービス作成
+  5-7: AUTH_REDIRECT_URI 更新
+  5-8: 動作確認
 ```
