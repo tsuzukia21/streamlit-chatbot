@@ -1,72 +1,71 @@
 """
 データベース管理モジュール
-FirestoreとCloud Storageを使用してチャット履歴と画像を永続化
+DynamoDBとS3を使用してチャット履歴と画像を永続化
 """
 import os
 import json
 import base64
 import mimetypes
+import uuid
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
-import firebase_admin
-from firebase_admin import credentials, firestore
-from google.cloud import storage
-from google.cloud.firestore_v1.base_query import FieldFilter
+import boto3
 import streamlit as st
 
-# Firestore と Cloud Storage クライアント
-_db = None
-_storage_client = None
-_bucket = None
+# DynamoDB と S3 クライアント
+_dynamodb_table = None
+_s3_client = None
+_s3_bucket_name = None
+
+
+def get_timestamp() -> int:
+    """現在時刻のUnixミリ秒タイムスタンプを返す"""
+    return int(datetime.now().timestamp() * 1000)
+
+
+def _generate_id() -> str:
+    """uuid.uuid4().hex でIDを生成"""
+    return uuid.uuid4().hex
+
 
 def init_db() -> None:
-    """Firestore と Cloud Storage の初期化"""
-    global _db, _storage_client, _bucket
-    
-    if _db is not None:
+    """DynamoDB と S3 クライアントの初期化"""
+    global _dynamodb_table, _s3_client, _s3_bucket_name
+
+    if _dynamodb_table is not None:
         return  # 既に初期化済み
-    
-    # Firebase Admin SDK の初期化
-    if not firebase_admin._apps:
-        # Cloud Run上では自動的に認証される
-        # ローカル開発の場合は GOOGLE_APPLICATION_CREDENTIALS 環境変数を設定
-        try:
-            # デフォルトの認証情報を使用
-            firebase_admin.initialize_app()
-        except Exception as e:
-            st.error(f"Firebase初期化エラー: {e}")
-            raise
-    
-    _db = firestore.client()
-    
-    # Cloud Storage クライアントの初期化
-    _storage_client = storage.Client()
-    
-    # バケット名を環境変数から取得（デフォルト値も設定）
-    bucket_name = os.environ.get('GCS_BUCKET_NAME', '')
-    if not bucket_name:
-        # Streamlit secrets から取得を試みる
-        try:
-            bucket_name = st.secrets.get('GCS_BUCKET_NAME', '')
-        except:
-            pass
-    
-    if bucket_name:
-        _bucket = _storage_client.bucket(bucket_name)
-    else:
-        st.warning("GCS_BUCKET_NAME が設定されていません。画像機能は使用できません。")
+
+    region = os.environ.get('AWS_REGION')
+    table_name = os.environ.get('DYNAMODB_TABLE_NAME')
+    _s3_bucket_name = os.environ.get('S3_BUCKET_NAME')
+
+    try:
+        dynamodb = boto3.resource('dynamodb', region_name=region)
+        _dynamodb_table = dynamodb.Table(table_name)
+        _s3_client = boto3.client('s3', region_name=region)
+    except Exception as e:
+        st.error(f"AWS初期化エラー: {e}")
+        raise
 
 def get_db():
-    """Firestoreクライアントを取得"""
-    if _db is None:
+    """DynamoDBテーブルを取得"""
+    if _dynamodb_table is None:
         init_db()
-    return _db
+    return _dynamodb_table
+
+
+def get_s3():
+    """(S3クライアント, バケット名)のタプルを取得"""
+    if _s3_client is None:
+        init_db()
+    return _s3_client, _s3_bucket_name
+
 
 def get_bucket():
-    """Cloud Storageバケットを取得"""
-    if _bucket is None:
+    """S3バケット名を返す（画像関数から呼ばれる後方互換インタフェース）"""
+    if _s3_client is None:
         init_db()
-    return _bucket
+    return _s3_bucket_name or None
 
 def get_extension_from_mime(mime_type: str) -> str:
     """MIMEタイプから拡張子を取得"""
