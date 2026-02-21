@@ -301,46 +301,55 @@ def get_conversation_tokens(conversation_id: str) -> int:
 
 def delete_conversation(conversation_id: str) -> None:
     """会話を論理削除"""
-    db = get_db()
-    
-    doc_ref = db.collection('conversations').document(conversation_id)
-    doc_ref.update({
-        'is_deleted': True
-    })
+    table = get_db()
 
-def save_message(conversation_id: str, role: str, content: Any, 
+    table.update_item(
+        Key={
+            'pk': f'CONV#{conversation_id}',
+            'sk': 'METADATA',
+        },
+        UpdateExpression='SET is_deleted = :is_deleted',
+        ExpressionAttributeValues={
+            ':is_deleted': True,
+        },
+    )
+
+def save_message(conversation_id: str, role: str, content: Any,
                  reasoning: str = "") -> str:
     """
     メッセージを保存
-    
+
     Args:
         conversation_id: 会話ID
         role: 'human' or 'assistant'
         content: メッセージ内容（文字列 or リスト）
         reasoning: 思考プロセス（assistantのみ）
-    
+
     Returns:
-        保存したメッセージのID
+        保存したメッセージのID (uuid4 hex)
     """
-    db = get_db()
-    
-    # contentをJSON文字列として保存
+    table = get_db()
+
+    message_id = _generate_id()
+    now = get_timestamp()
     content_json = json.dumps(content, ensure_ascii=False)
-    
-    messages_ref = db.collection('conversations').document(conversation_id).collection('messages')
-    doc_ref = messages_ref.document()
-    
-    doc_ref.set({
+
+    table.put_item(Item={
+        'pk': f'CONV#{conversation_id}',
+        'sk': f'{now}#{message_id}',
+        'entity_type': 'message',
+        'conversation_id': conversation_id,
+        'message_id': message_id,
         'role': role,
         'content': content_json,
         'reasoning': reasoning,
-        'created_at': firestore.SERVER_TIMESTAMP
+        'created_at': now,
     })
-    
+
     # 会話の更新日時を更新
     update_conversation_timestamp(conversation_id)
-    
-    return doc_ref.id
+
+    return message_id
 
 def update_message_content(conversation_id: str, message_id: str, content: Any) -> None:
     """メッセージの内容を更新（画像保存後にパスを更新する用）"""
@@ -404,36 +413,38 @@ def save_message_with_images(conversation_id: str, role: str, content: Any,
 def get_messages(conversation_id: str) -> List[Tuple[str, Any]]:
     """
     会話のメッセージ履歴を取得（古い順）
-    
+
     Returns:
         (role, content)のタプルのリスト
         contentは画像がある場合はdata URIに変換して返す
     """
-    db = get_db()
-    
-    messages_ref = db.collection('conversations').document(conversation_id).collection('messages')
-    query = messages_ref.order_by('created_at', direction=firestore.Query.ASCENDING)
-    
-    docs = query.stream()
-    
+    table = get_db()
+
+    # sk は "<timestamp>#<messageId>" 形式のためMETADATAより辞書順で小さい
+    # entity_type でメッセージのみフィルタし、skの昇順（＝時系列順）で取得
+    response = table.query(
+        KeyConditionExpression=Key('pk').eq(f'CONV#{conversation_id}'),
+        FilterExpression=Attr('entity_type').eq('message'),
+        ScanIndexForward=True,
+    )
+
     messages = []
-    for doc in docs:
-        data = doc.to_dict()
-        role = data['role']
-        content_json = data['content']
-        
+    for item in response.get('Items', []):
+        role = item['role']
+        content_json = item['content']
+
         try:
             content = json.loads(content_json)
         except json.JSONDecodeError:
             content = content_json
-        
+
         # contentがリストで画像パスを含む場合、data URIに変換
         if isinstance(content, list):
             converted_content = []
-            for item in content:
-                if isinstance(item, dict) and item.get("type") == "image_url":
-                    url = item["image_url"]["url"]
-                    # Cloud Storageのパスならdata URIに変換
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "image_url":
+                    url = part["image_url"]["url"]
+                    # S3のパスならdata URIに変換
                     if url.startswith("images/"):
                         data_uri = load_image_file(url)
                         converted_content.append({
@@ -441,13 +452,13 @@ def get_messages(conversation_id: str) -> List[Tuple[str, Any]]:
                             "image_url": {"url": data_uri}
                         })
                     else:
-                        converted_content.append(item)
+                        converted_content.append(part)
                 else:
-                    converted_content.append(item)
+                    converted_content.append(part)
             content = converted_content
-        
+
         messages.append((role, content))
-    
+
     return messages
 
 def get_last_reasoning(conversation_id: str) -> str:
