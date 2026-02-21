@@ -73,12 +73,12 @@
 
 ### ユーザーストーリー 2 の実装
 
-- [ ] T020 [US2] `save_image_file(conversation_id, message_id, index, data_uri)` を S3 `put_object` で実装 (core/database.py)
-- [ ] T021 [US2] `load_image_file(blob_path)` を S3 `get_object` で実装し、data URI に変換 (core/database.py)
-- [ ] T022 [US2] `delete_message_images(conversation_id, message_id)` を S3 `list_objects_v2` と `delete_object` で実装 (core/database.py)
-- [ ] T023 [US2] `save_message_with_images(conversation_id, role, content, reasoning)` を実装: data URI を抽出し S3 にアップロード、パスに置換後 DynamoDB に保存 (core/database.py)
-- [ ] T024 [US2] `get_messages()` を更新: S3 画像パスを `load_image_file()` で data URI に変換 (core/database.py)
-- [ ] T025 [US2] `delete_messages_from_index()` を更新: 削除対象メッセージの関連 S3 画像も削除 (core/database.py)
+- [x] T020 [US2] `save_image_file(conversation_id, message_id, index, data_uri)` を S3 `put_object` で実装 (core/database.py)
+- [x] T021 [US2] `load_image_file(blob_path)` を S3 `get_object` で実装し、data URI に変換 (core/database.py)
+- [x] T022 [US2] `delete_message_images(conversation_id, message_id)` を S3 `list_objects_v2` と `delete_object` で実装 (core/database.py)
+- [x] T023 [US2] `save_message_with_images(conversation_id, role, content, reasoning)` を実装: data URI を抽出し S3 にアップロード、パスに置換後 DynamoDB に保存 (core/database.py)
+- [x] T024 [US2] `get_messages()` を更新: S3 画像パスを `load_image_file()` で data URI に変換 (core/database.py)
+- [x] T025 [US2] `delete_messages_from_index()` を更新: 削除対象メッセージの関連 S3 画像も削除 (core/database.py)
 
 **チェックポイント**: 画像付きメッセージの送信・保存・表示・削除がS3で完全動作。
 

@@ -82,24 +82,24 @@ def get_extension_from_mime(mime_type: str) -> str:
     }
     return mime_map.get(mime_type, ".bin")
 
-def save_image_file(conversation_id: str, message_id: str, index: int, 
+def save_image_file(conversation_id: str, message_id: str, index: int,
                     data_uri: str) -> str:
     """
-    画像をCloud Storageに保存し、パスを返す
-    
+    画像をS3に保存し、パスを返す
+
     Args:
         conversation_id: 会話ID
         message_id: メッセージID
         index: 画像のインデックス
         data_uri: data:image/png;base64,... 形式のURI
-    
+
     Returns:
-        保存した画像のGCSパス（例: "images/conv123_msg456_0.png"）
+        保存した画像のS3パス（例: "images/conv123_msg456_0.png"）
     """
-    bucket = get_bucket()
-    if not bucket:
+    s3_client, bucket_name = get_s3()
+    if not bucket_name:
         return ""
-    
+
     # data URIをパース
     if "," in data_uri:
         header, base64_data = data_uri.split(",", 1)
@@ -107,45 +107,43 @@ def save_image_file(conversation_id: str, message_id: str, index: int,
         ext = get_extension_from_mime(mime_type)
     else:
         base64_data = data_uri
+        mime_type = "image/png"
         ext = ".png"
-    
+
     # ファイル名を生成
     filename = f"conv{conversation_id}_msg{message_id}_{index}{ext}"
     blob_path = f"images/{filename}"
-    
-    # Base64デコードしてアップロード
+
+    # Base64デコードしてS3にアップロード
     image_bytes = base64.b64decode(base64_data)
-    blob = bucket.blob(blob_path)
-    blob.upload_from_string(image_bytes, content_type=mime_type if "," in data_uri else "image/png")
-    
+    s3_client.put_object(
+        Bucket=bucket_name,
+        Key=blob_path,
+        Body=image_bytes,
+        ContentType=mime_type,
+    )
+
     return blob_path
 
 def load_image_file(blob_path: str) -> str:
     """
-    Cloud Storageから画像を読み込んでdata URIに変換
-    
+    S3から画像を読み込んでdata URIに変換
+
     Args:
-        blob_path: GCSパス（例: "images/conv123_msg456_0.png"）
-    
+        blob_path: S3パス（例: "images/conv123_msg456_0.png"）
+
     Returns:
         data:image/png;base64,... 形式のURI
     """
-    bucket = get_bucket()
-    if not bucket:
+    s3_client, bucket_name = get_s3()
+    if not bucket_name:
         return ""
-    
+
     try:
-        blob = bucket.blob(blob_path)
-        if not blob.exists():
-            return ""
-        
-        # ファイル名から拡張子を取得してMIMEタイプを推測
-        mime_type = blob.content_type or "image/png"
-        
-        # ダウンロードしてBase64エンコード
-        image_bytes = blob.download_as_bytes()
+        response = s3_client.get_object(Bucket=bucket_name, Key=blob_path)
+        mime_type = response.get('ContentType', 'image/png')
+        image_bytes = response['Body'].read()
         base64_data = base64.b64encode(image_bytes).decode('utf-8')
-        
         return f"data:{mime_type};base64,{base64_data}"
     except Exception:
         return ""
@@ -379,21 +377,21 @@ def update_message_content(conversation_id: str, message_id: str, content: Any) 
 def save_message_with_images(conversation_id: str, role: str, content: Any,
                               reasoning: str = "") -> str:
     """
-    画像を含むメッセージを保存（画像はCloud Storageに保存）
-    
+    画像を含むメッセージを保存（画像はS3に保存）
+
     Args:
         conversation_id: 会話ID
         role: 'human' or 'assistant'
         content: メッセージ内容（文字列 or 画像URLを含むリスト）
         reasoning: 思考プロセス
-    
+
     Returns:
         保存したメッセージのID
     """
     # まずメッセージをDBに保存してIDを取得
     message_id = save_message(conversation_id, role, content, reasoning)
-    
-    # contentがリストで画像を含む場合、画像をCloud Storageに保存してパスを更新
+
+    # contentがリストで画像を含む場合、画像をS3に保存してパスを更新
     if isinstance(content, list):
         updated_content = []
         image_index = 0
@@ -401,7 +399,7 @@ def save_message_with_images(conversation_id: str, role: str, content: Any,
         for item in content:
             if isinstance(item, dict) and item.get("type") == "image_url":
                 data_uri = item["image_url"]["url"]
-                # data URIならCloud Storageに保存
+                # data URIならS3に保存
                 if data_uri.startswith("data:"):
                     blob_path = save_image_file(
                         conversation_id, message_id, image_index, data_uri
@@ -493,23 +491,23 @@ def get_last_reasoning(conversation_id: str) -> str:
 
 def delete_message_images(conversation_id: str, message_id: str) -> None:
     """
-    メッセージに関連する画像ファイルをCloud Storageから削除
-    
+    メッセージに関連する画像ファイルをS3から削除
+
     Args:
         conversation_id: 会話ID
         message_id: メッセージID
     """
-    bucket = get_bucket()
-    if not bucket:
+    s3_client, bucket_name = get_s3()
+    if not bucket_name:
         return
-    
-    # パターンに一致するblobを検索して削除
+
+    # プレフィックスに一致するオブジェクトを検索して削除
     prefix = f"images/conv{conversation_id}_msg{message_id}_"
-    blobs = bucket.list_blobs(prefix=prefix)
-    
-    for blob in blobs:
+    response = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
+
+    for obj in response.get('Contents', []):
         try:
-            blob.delete()
+            s3_client.delete_object(Bucket=bucket_name, Key=obj['Key'])
         except Exception:
             pass
 
@@ -536,7 +534,13 @@ def delete_messages_from_index(conversation_id: str, message_index: int) -> None
 
     items_to_delete = items[message_index:]
 
-    # batch_writer で一括削除（S3画像削除は T025 で追加予定）
+    # 削除対象メッセージの関連S3画像を削除
+    for item in items_to_delete:
+        msg_id = item.get('message_id')
+        if msg_id:
+            delete_message_images(conversation_id, msg_id)
+
+    # batch_writer で一括削除
     with table.batch_writer() as batch:
         for item in items_to_delete:
             batch.delete_item(Key={
