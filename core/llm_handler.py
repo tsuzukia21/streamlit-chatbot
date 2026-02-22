@@ -2,7 +2,6 @@ import streamlit as st
 from core.MODEL_CONFIG import MODEL_CONFIG
 from typing import List, Dict, Any, Optional, Tuple, Union
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from google.ai.generativelanguage_v1beta.types import Tool as GenAITool
 
 def on_stop() -> None:
     """stop押下時に停止フラグを立てる。streamlitの仕様上ループ中断後の処理は実行されないのでstate、chat_history更新する。"""
@@ -57,7 +56,7 @@ def build_chain(prompt_template: ChatPromptTemplate):
     if provider == "openai":
         llm_instance = llm_instance.bind_tools([{"type": "web_search"}])
     elif provider == "google":
-        llm_instance = llm_instance.bind_tools([GenAITool(google_search={})])
+        llm_instance = llm_instance.bind_tools([{"google_search": {}}])
     elif provider == "anthropic":
         llm_instance = llm_instance.bind_tools([{"type": "web_search_20250305","name": "web_search", "max_uses": 5}])
     
