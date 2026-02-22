@@ -109,7 +109,7 @@ with st.sidebar:
     if not st.user.is_logged_in:
         st.warning("⚠️ ログインが必要です")
         if st.button("🔐 Googleアカウントでログイン", use_container_width=True, type="primary", key="login_button"):
-            st.login()
+            st.login("google")
         st.stop()  # ログインするまでここで停止
     else:
         # 許可されたメールアドレスのホワイトリスト検証（環境変数 ALLOWED_EMAILS: カンマ区切り）
@@ -119,12 +119,12 @@ with st.sidebar:
         if allowed_emails and (user_email not in allowed_emails):
             st.error("アクセス権がありません")
             time.sleep(3)
-            st.logout()
+            st.logout("google")
             st.stop()
         # ログイン済みユーザー情報表示
         st.success(f"👤 {st.user.name}")
         if st.button("ログアウト", use_container_width=True, key="logout_button"):
-            st.logout()
+            st.logout("google")
     st.divider()
 
 with st.sidebar.container():

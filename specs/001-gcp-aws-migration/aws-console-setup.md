@@ -11,7 +11,8 @@
 3. [IAM ロール作成](#3-iam-ロール作成)
 4. [ECR リポジトリ作成](#4-ecr-リポジトリ作成)
 5. [ECS Fargate + ALB でデプロイ](#5-ecs-fargate--alb-でデプロイ)
-6. [トラブルシューティング](#6-トラブルシューティング)
+6. [CloudFront で HTTPS 対応](#6-cloudfront-で-https-対応)
+7. [トラブルシューティング](#7-トラブルシューティング)
 
 ---
 
@@ -521,7 +522,7 @@ AWSコンソール → **ECS** → 左メニュー「タスク定義」
 | `ALLOWED_EMAILS` | `your@example.com`（任意） |
 | `GOOGLE_OAUTH_CLIENT_ID` | Google Cloud Console の OAuth クライアント ID |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | 同クライアントシークレット |
-| `AUTH_REDIRECT_URI` | `http://ALB_DNS_NAME/oauth2callback`（後で更新する） |
+| `AUTH_REDIRECT_URI` | `https://CLOUDFRONT_DOMAIN/oauth2callback`（CloudFront 作成後に更新する） |
 | `AUTH_COOKIE_SECRET` | 任意のランダム文字列（省略時は自動生成） |
 
 #### ログの設定
@@ -570,30 +571,99 @@ AWSコンソール → **ECS** → クラスター `streamlit-chatbot-cluster` �
 
 ---
 
-### 5-7. AUTH_REDIRECT_URI の更新
+### 5-7. 動作確認（HTTP）
 
-1. EC2 コンソール → ロードバランサー → `streamlit-chatbot-alb` の DNS 名をコピー（例: `streamlit-chatbot-alb-123456789.ap-northeast-1.elb.amazonaws.com`）
-2. ECS → タスク定義 → `streamlit-chatbot` → 「**新しいリビジョンの作成**」
-3. 環境変数 `AUTH_REDIRECT_URI` を `http://ALB_DNS_NAME/oauth2callback` に更新
-4. 新しいリビジョンを作成
-5. ECS → クラスター → サービス → 「**サービスを更新**」→ 新しいリビジョンを選択 →「**更新**」
-6. **Google Cloud Console** の OAuth クライアント設定で「承認済みのリダイレクト URI」にも同じ URL を追加
+ECS サービス作成後、ALB の DNS 名で HTTP アクセスして ECS が正常に動作しているか確認する。
+
+1. EC2 コンソール → ロードバランサー → `streamlit-chatbot-alb` の DNS 名をコピー
+2. ブラウザで `http://ALB_DNS_NAME` にアクセス
+3. Streamlit の画面が表示されることを確認（この時点では HTTP）
+
+> この後 CloudFront を設定して HTTPS 対応する。
 
 ---
 
-### 5-8. 動作確認
+## 6. CloudFront で HTTPS 対応
 
-デプロイ完了後（数分）、ALB の DNS 名（`http://ALB_DNS_NAME`）にブラウザでアクセスして動作確認。
+> **なぜ CloudFront を使うのか**: CloudFront はカスタムドメインなしで自動的に HTTPS URL（`https://xxxxxxxx.cloudfront.net`）と SSL 証明書を提供する。ALB 単体では SSL 証明書の設定にカスタムドメインが必要だが、CloudFront なら不要。
+
+構成: `ユーザー → CloudFront (HTTPS) → ALB (HTTP) → ECS`
+
+### 6-1. CloudFront ディストリビューションの作成
+
+AWSコンソール → **CloudFront** を開く
+
+1. 「**ディストリビューションを作成**」をクリック
+
+#### 基本設定
+
+| 項目 | 値 |
+|------|-----|
+| Description | `Streamlit Chatbot HTTPS Frontend` |
+
+#### オリジンの設定
+
+| 項目 | 値 |
+|------|-----|
+| オリジンドメイン | ALB の DNS 名（`streamlit-chatbot-alb-xxxxxx.ap-northeast-1.elb.amazonaws.com`） |
+| プロトコル | **HTTP のみ** |
+| HTTP ポート | `80` |
+
+#### デフォルトのキャッシュビヘイビアの設定
+
+| 項目 | 値 |
+|------|-----|
+| ビューワープロトコルポリシー | **Redirect HTTP to HTTPS** |
+| 許可された HTTP メソッド | **GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE** |
+| キャッシュポリシー | **CachingDisabled** |
+| オリジンリクエストポリシー | **AllViewer** |
+
+> **ポイント**: Streamlit は動的コンテンツ＆WebSocket のため、キャッシュは無効にし、すべてのヘッダー（`Upgrade`、`Connection` 含む）をオリジンに転送する必要がある。
+
+#### Web Application Firewall (WAF)
+
+- 「**セキュリティ保護を有効にしない**」を選択（コスト削減のため）
+
+#### 設定
+
+| 項目 | 値 |
+|------|-----|
+| 料金クラス | **北米、欧州、アジア、中東、アフリカを使用**（または「すべてのエッジロケーションを使用」） |
+| デフォルトルートオブジェクト | （空欄のまま） |
+
+2. 「**ディストリビューションを作成**」をクリック
+3. 作成後、ディストリビューションの **ドメイン名** をコピー（例: `d1234567890.cloudfront.net`）
+
+> デプロイ完了まで数分かかる。ステータスが「有効」になるまで待つ。
+
+---
+
+### 6-2. AUTH_REDIRECT_URI の更新
+
+1. ECS → タスク定義 → `streamlit-chatbot` → 「**新しいリビジョンの作成**」
+2. 環境変数 `AUTH_REDIRECT_URI` を `https://CLOUDFRONT_DOMAIN/oauth2callback` に更新（例: `https://d1234567890.cloudfront.net/oauth2callback`）
+3. 新しいリビジョンを作成
+4. ECS → クラスター → サービス → 「**サービスを更新**」→ 新しいリビジョンを選択 →「**更新**」
+5. **Google Cloud Console** の OAuth クライアント設定で「承認済みのリダイレクト URI」に `https://CLOUDFRONT_DOMAIN/oauth2callback` を追加
+
+---
+
+### 6-3. 動作確認（HTTPS）
+
+デプロイ完了後（数分）、CloudFront のドメイン名（`https://CLOUDFRONT_DOMAIN`）にブラウザでアクセスして動作確認。
 
 確認項目:
+- HTTPS でアクセスできること（ブラウザのアドレスバーに鍵アイコンが表示される）
 - Streamlit の画面が表示されること（WebSocket エラーが出ないこと）
 - Google OAuth ログインが動作すること
 - チャットの送受信ができること（DynamoDB）
 - 画像アップロードができること（S3）
 
+> **注意**: ALB の DNS 名（HTTP）に直接アクセスしても動作するが、本番運用では必ず CloudFront の URL（HTTPS）を使用すること。
+
 ---
 
-## 6. トラブルシューティング
+## 7. トラブルシューティング
 
 ### ECS タスクが起動しない
 
@@ -630,6 +700,9 @@ Step 5: ECS Fargate + ALB でデプロイ
   5-4: ECS クラスター作成
   5-5: タスク定義作成
   5-6: ECS サービス作成
-  5-7: AUTH_REDIRECT_URI 更新
-  5-8: 動作確認
+  5-7: 動作確認（HTTP）
+Step 6: CloudFront で HTTPS 対応
+  6-1: CloudFront ディストリビューション作成
+  6-2: AUTH_REDIRECT_URI 更新（HTTPS）
+  6-3: 動作確認（HTTPS）
 ```
