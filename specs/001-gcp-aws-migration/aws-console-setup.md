@@ -383,8 +383,9 @@ AWSコンソール → **VPC** → 左メニュー「セキュリティグルー
 
 | タイプ | ポート | ソース |
 |--------|--------|--------|
-| HTTP | 80 | `0.0.0.0/0` |
-| HTTPS | 443 | `0.0.0.0/0` |
+| HTTP | 80 | **CloudFront マネージドプレフィックスリスト**（`com.amazonaws.global.cloudfront.origin-facing`） |
+
+> **ポイント**: ソースに `0.0.0.0/0` ではなく CloudFront のマネージドプレフィックスリストを指定することで、ALB への直接アクセスをブロックし、CloudFront 経由のアクセスのみ許可する。ソースの入力欄で「プレフィックスリスト」を選択し、`com.amazonaws.global.cloudfront.origin-facing` を選ぶ。
 
 3. 「**セキュリティグループを作成**」をクリック
 
@@ -659,7 +660,7 @@ AWSコンソール → **CloudFront** を開く
 - チャットの送受信ができること（DynamoDB）
 - 画像アップロードができること（S3）
 
-> **注意**: ALB の DNS 名（HTTP）に直接アクセスしても動作するが、本番運用では必ず CloudFront の URL（HTTPS）を使用すること。
+> **注意**: ALB のセキュリティグループで CloudFront マネージドプレフィックスリストのみ許可しているため、ALB の DNS 名に直接アクセスしてもタイムアウトになる。必ず CloudFront の URL（HTTPS）を使用すること。
 
 ---
 
