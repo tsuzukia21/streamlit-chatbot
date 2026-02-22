@@ -119,12 +119,12 @@ with st.sidebar:
         if allowed_emails and (user_email not in allowed_emails):
             st.error("アクセス権がありません")
             time.sleep(3)
-            st.logout("google")
+            st.logout()
             st.stop()
         # ログイン済みユーザー情報表示
         st.success(f"👤 {st.user.name}")
         if st.button("ログアウト", use_container_width=True, key="logout_button"):
-            st.logout("google")
+            st.logout()
     st.divider()
 
 with st.sidebar.container():
