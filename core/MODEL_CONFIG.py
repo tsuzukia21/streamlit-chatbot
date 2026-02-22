@@ -17,14 +17,14 @@ MODEL_CONFIG = {
             thinking={"type": "enabled","budget_tokens": 8192}
         )
     },
-    "gemini-3.0-pro": {
+    "gemini-3.1-pro": {
         "provider": "google",
-        "display_name": "gemini-3.0-pro",
+        "display_name": "gemini-3.1-pro",
         "index": 1,
         "llm_factory": lambda temp: ChatGoogleGenerativeAI(
-            model="gemini-3-pro-preview",
+            model="gemini-3.1-pro-preview",
             temperature=1.0,
-            thinking_budget=16384,
+            thinking_level="high",
             include_thoughts=True,
             output_version="v1"
         )
