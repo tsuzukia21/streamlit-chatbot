@@ -18,7 +18,7 @@ MODEL_CONFIG = {
     },
     "gemini-3.1": {
         "provider": "google",
-        "display_name": "gemini-3.1",
+        "display_name": "gemini-3.1 pro preview",
         "index": 1,
         "generation_config": {
             "thinking_config": {
@@ -27,7 +27,7 @@ MODEL_CONFIG = {
             }
         },
         "llm_factory": lambda temp: ChatGoogleGenerativeAI(
-            model="gemini-3.1-pro",
+            model="gemini-3.1-pro-preview",
             temperature=temp,
             output_version="v1",
         ),
