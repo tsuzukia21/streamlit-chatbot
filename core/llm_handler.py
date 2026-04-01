@@ -15,8 +15,8 @@ def on_stop() -> None:
 
 def get_current_provider() -> str:
     """現在のモデルのプロバイダを取得"""
-    model = st.session_state.get("model", "claude-opus-4.5")
-    return MODEL_CONFIG.get(model, MODEL_CONFIG["claude-opus-4.5"])["provider"]
+    model = st.session_state.get("model", "gpt-5.4")
+    return MODEL_CONFIG[model]["provider"]
 
 def build_prompt_template(image_urls: Optional[List[str]] = None) -> ChatPromptTemplate:
     """
@@ -50,7 +50,8 @@ def build_prompt_template(image_urls: Optional[List[str]] = None) -> ChatPromptT
 
 def build_chain(prompt_template: ChatPromptTemplate):
     """プロンプトテンプレートからチェーンを構築する。"""
-    # LLMインスタンスを取得
+    model_name = st.session_state.get("model", "gpt-5.4")
+    model_config = MODEL_CONFIG[model_name]
     llm_instance = st.session_state.llm(st.session_state.temperature)
     
     provider = get_current_provider()
@@ -58,6 +59,9 @@ def build_chain(prompt_template: ChatPromptTemplate):
         llm_instance = llm_instance.bind_tools([{"type": "web_search"}])
     elif provider == "google":
         llm_instance = llm_instance.bind_tools([GenAITool(google_search={})])
+        generation_config = model_config.get("generation_config")
+        if generation_config:
+            llm_instance = llm_instance.bind(generation_config=generation_config)
     elif provider == "anthropic":
         llm_instance = llm_instance.bind_tools([{"type": "web_search_20250305","name": "web_search", "max_uses": 5}])
     

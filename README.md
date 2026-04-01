@@ -4,7 +4,7 @@
 マルチモーダル入力（テキスト/画像/音声）に対応した Streamlit 製チャットボットです。会話履歴は Firestore、画像は Cloud Storage に永続化します。モデル切替（Anthropic, Google, OpenAI）や思考可視化（thinking/chain-of-thoughtの表示）に対応しています。
 
 ### 主な機能
-- **モデル切替**: Claude Opus 4.5 / Gemini 3.0 Pro / GPT‑5.1（LangChain ラッパー）
+- **モデル切替**: Opus 4.6 / Gemini 3.1 / GPT‑5.4（LangChain ラッパー）
 - **ツール付与**: 各モデルにネット検索ツール付与。最新の話題にも対応
 - **マルチモーダル入力**: 画像アップロード、音声認識（Whisper）
 - **会話管理**: 新規作成、タイトル自動生成、編集（過去メッセージから再分岐）

@@ -2,42 +2,45 @@ from langchain_anthropic import ChatAnthropic
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
-# モデル設定の一元管理
 MODEL_CONFIG = {
-    "claude-opus-4.5": {
+    "opus-4.6": {
         "provider": "anthropic",
-        "display_name": "claude-opus-4.5",
+        "display_name": "opus-4.6",
         "index": 0,
         "llm_factory": lambda temp: ChatAnthropic(
-            temperature=1.0,
-            model_name="claude-opus-4-5-20251101",
+            temperature=temp,
+            model_name="claude-opus-4-6",
             max_tokens=16384,
             timeout=120,
             max_retries=3,
-            thinking={"type": "enabled","budget_tokens": 8192}
-        )
+            thinking={"type": "adaptive"},
+        ),
     },
-    "gemini-3.0-pro": {
+    "gemini-3.1": {
         "provider": "google",
-        "display_name": "gemini-3.0-pro",
+        "display_name": "gemini-3.1",
         "index": 1,
+        "generation_config": {
+            "thinking_config": {
+                "thinking_level": "high",
+                "include_thoughts": True,
+            }
+        },
         "llm_factory": lambda temp: ChatGoogleGenerativeAI(
-            model="gemini-3-pro-preview",
-            temperature=1.0,
-            thinking_budget=16384,
-            include_thoughts=True,
-            output_version="v1"
-        )
+            model="gemini-3.1-pro",
+            temperature=temp,
+            output_version="v1",
+        ),
     },
-    "gpt-5.2": {
+    "gpt-5.4": {
         "provider": "openai",
-        "display_name": "gpt-5.2",
+        "display_name": "gpt-5.4",
         "index": 2,
         "llm_factory": lambda temp: ChatOpenAI(
-            model="gpt-5.2",
-            temperature=1.0,
+            model="gpt-5.4",
+            temperature=temp,
             max_tokens=16384,
-            reasoning={"effort": "medium","summary": "auto"}
-        )
-    }
+            reasoning={"effort": "medium", "summary": "auto"},
+        ),
+    },
 }

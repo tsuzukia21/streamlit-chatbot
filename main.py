@@ -52,7 +52,7 @@ def initialize_session_state():
         "system_prompt": DEFAULT_SYSTEM_PROMPT,
         "temperature": DEFAULT_TEMPERATURE,
         "error_message": "",
-        "model_index": 0,
+        "model_index": MODEL_CONFIG[DEFAULT_MODEL]["index"],
         "chat_history": [],
         "model": DEFAULT_MODEL,
         "reasoning": "",  # 推論過程の保存
@@ -69,10 +69,10 @@ def initialize_session_state():
         st.session_state.user_id = get_user_id()
     
     # LLM初期化（modelが設定された後）
-    if "llm" not in st.session_state:
-        model_name = st.session_state.model
-        config = MODEL_CONFIG[model_name]
-        st.session_state.llm = config["llm_factory"]
+    model_name = st.session_state.model
+    config = MODEL_CONFIG[model_name]
+    st.session_state.model_index = config["index"]
+    st.session_state.llm = config["llm_factory"]
 
 def check_token() -> bool:
     def limit_error(msg: str) -> bool:
@@ -94,10 +94,9 @@ def update_system_prompt():
 def update_model():
     """モデル切り替え時にLLMインスタンスとインデックスを更新"""
     model_name = st.session_state.model
-    config = MODEL_CONFIG.get(model_name)
-    if config:
-        st.session_state.llm = config["llm_factory"]
-        st.session_state.model_index = config["index"]
+    config = MODEL_CONFIG[model_name]
+    st.session_state.llm = config["llm_factory"]
+    st.session_state.model_index = config["index"]
 
 # セッション状態を初期化
 initialize_session_state()

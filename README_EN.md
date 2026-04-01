@@ -3,7 +3,7 @@
 This is a Streamlit-based chatbot supporting multimodal inputs (text/images/audio). Conversation history is persisted to Firestore and images to Cloud Storage. You can switch among models (Anthropic, Google, OpenAI) and visualize reasoning/thinking when supported.
 
 ### Key Features
-- Model switching: Claude Sonnet 4.5 / Gemini 2.5 Pro / GPT‑5 (via LangChain wrapper)
+- Model switching: Opus 4.6 / Gemini 3.1 / GPT-5.4 (via LangChain wrapper)
 - Tool augmentation: Web search tools attached to each model for up-to-date topics
 - Multimodal input: image upload and speech recognition (Whisper)
 - Conversation management: create new conversation, auto-generate titles, edit, branch from past messages
